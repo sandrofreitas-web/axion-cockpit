@@ -102,6 +102,7 @@
         </div>
         <div style="display: flex; gap: 10px;">
           <button class="btn-inspect" id="btn-validate-ci">⚡ Validar Linter (CI Check)</button>
+          <button class="btn-inspect" id="btn-wizard-hub">🧙‍♂️ Assistente Guiado</button>
           <button class="btn-project-sync" id="btn-new-skill-hub">+ Nova Skill</button>
         </div>
       </div>
@@ -200,6 +201,7 @@
         </div>
         <div style="display: flex; gap: 10px;">
           <button class="btn-inspect" id="btn-studio-template">📄 Template Canônico</button>
+          <button class="btn-inspect" id="btn-wizard-studio">🧙‍♂️ Assistente Guiado</button>
           <button class="btn-project-sync" id="btn-studio-save">💾 Salvar / Publicar Skill</button>
         </div>
       </div>
@@ -291,6 +293,140 @@
           <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
             <button class="btn-inspect" id="btn-cancel-project-modal">Cancelar</button>
             <button class="btn-project-sync" id="btn-save-project-modal">Adicionar à Frota</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Skill Wizard -->
+  <div class="modal-overlay" id="skill-wizard-modal">
+    <div class="modal-dialog" style="max-width: 680px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 18px;">🧙‍♂️</span>
+          <h3 style="font-size: 15px; font-weight: 700;">Assistente Guiado de Criação de Skills</h3>
+        </div>
+        <button class="btn-inspect" id="btn-close-wizard-modal">✕</button>
+      </div>
+
+      <!-- Stepper Progress Bar -->
+      <div class="wizard-stepper" style="display: flex; border-bottom: 1px solid var(--border-subtle); background: var(--bg-workbench); padding: 12px 20px; gap: 8px;">
+        <div class="wizard-step-item active" id="wizard-step-indicator-1" style="flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--accent-cyan);">
+          <span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(56, 189, 248, 0.2); border: 1px solid var(--accent-cyan); display: flex; align-items: center; justify-content: center; font-size: 11px;">1</span>
+          <span>Identificação</span>
+        </div>
+        <div class="wizard-step-item" id="wizard-step-indicator-2" style="flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--text-dim);">
+          <span style="width: 22px; height: 22px; border-radius: 50%; background: var(--bg-surface); border: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: center; font-size: 11px;">2</span>
+          <span>Gatilhos & IDEs</span>
+        </div>
+        <div class="wizard-step-item" id="wizard-step-indicator-3" style="flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--text-dim);">
+          <span style="width: 22px; height: 22px; border-radius: 50%; background: var(--bg-surface); border: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: center; font-size: 11px;">3</span>
+          <span>Regras & Código</span>
+        </div>
+      </div>
+
+      <div class="modal-body" style="padding: 20px;">
+        <!-- STEP 1: IDENTIFICAÇÃO -->
+        <div class="wizard-step-panel active" id="wizard-panel-1">
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div>
+              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Nome da Skill (Kebab-Case)</label>
+              <input type="text" id="wiz-skill-name" placeholder="Ex: fastapi-error-handling ou react-performance-patterns" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; font-family: var(--font-mono); outline: none;">
+              <span style="font-size: 11px; color: var(--text-dim); margin-top: 4px; display: block;">Use letras minúsculas e hífens. Sem espaços.</span>
+            </div>
+
+            <div>
+              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Descrição de Disparo (Quando a IA deve acionar?)</label>
+              <textarea id="wiz-skill-desc" rows="3" placeholder="Ex: Garante tratamento centralizado de exceções e respostas padronizadas em APIs FastAPI. Use ao criar endpoints, routers ou lidar com erros HTTP." style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; line-height: 1.5; outline: none; resize: vertical;"></textarea>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+              <div>
+                <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Tags (separadas por vírgula)</label>
+                <input type="text" id="wiz-skill-tags" placeholder="Ex: fastapi, error, backend, pydantic" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; outline: none;">
+              </div>
+              <div>
+                <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Versão SemVer</label>
+                <input type="text" id="wiz-skill-version" value="1.0.0" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; font-family: var(--font-mono); outline: none;">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 2: GATILHOS & COMPATIBILIDADE -->
+        <div class="wizard-step-panel" id="wizard-panel-2" style="display: none;">
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div>
+              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Gatilhos por Arquivo (Globs)</label>
+              <input type="text" id="wiz-skill-globs" placeholder="Ex: *.py, src/**/*.py, routers/*.py" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; font-family: var(--font-mono); outline: none;">
+              <span style="font-size: 11px; color: var(--text-dim); margin-top: 4px; display: block;">Extensões ou caminhos que ativam essa regra no Cursor / IDEs.</span>
+            </div>
+
+            <div>
+              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 8px;">Ferramentas de IA Compatíveis (Multi-LLM)</label>
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-main); background: var(--bg-editor); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;">
+                  <input type="checkbox" id="wiz-compat-antigravity" checked>
+                  <span>🤖 Antigravity</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-main); background: var(--bg-editor); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;">
+                  <input type="checkbox" id="wiz-compat-claude" checked>
+                  <span>🧠 Claude Code</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-main); background: var(--bg-editor); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;">
+                  <input type="checkbox" id="wiz-compat-cursor" checked>
+                  <span>⚡ Cursor (.mdc)</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-main); background: var(--bg-editor); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;">
+                  <input type="checkbox" id="wiz-compat-gemini" checked>
+                  <span>✨ Gemini CLI</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-main); background: var(--bg-editor); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;">
+                  <input type="checkbox" id="wiz-compat-windsurf" checked>
+                  <span>🏄 Windsurf</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-main); background: var(--bg-editor); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;">
+                  <input type="checkbox" id="wiz-compat-copilot" checked>
+                  <span>🐙 Copilot</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 3: REGRAS & CÓDIGO -->
+        <div class="wizard-step-panel" id="wizard-panel-3" style="display: none;">
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div>
+              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px;">1. Quando Usar (Cenários & Comandos)</label>
+              <textarea id="wiz-content-when" rows="2" placeholder="- Ao criar ou modificar endpoints da API&#10;- Ao lidar com exceções de banco de dados ou autenticação" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 8px 12px; color: var(--text-main); font-size: 12.5px; outline: none; resize: vertical;"></textarea>
+            </div>
+
+            <div>
+              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px;">2. Como Fazer (Diretrizes Técnicas / Passo a Passo)</label>
+              <textarea id="wiz-content-how" rows="3" placeholder="1. Sempre herde de DomainException para exceções de negócio.&#10;2. Utilize handlers centralizados no main.py com JSONResponse padronizado.&#10;3. Nunca exponha stacktraces internos para o cliente em produção." style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 8px 12px; color: var(--text-main); font-size: 12.5px; outline: none; resize: vertical;"></textarea>
+            </div>
+
+            <div>
+              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--accent-rose); text-transform: uppercase; margin-bottom: 4px;">3. O que NUNCA Fazer (Antipatterns / Proibições)</label>
+              <textarea id="wiz-content-never" rows="2" placeholder="- ❌ Nunca use blocos try/except Exception genéricos engolindo o erro.&#10;- ❌ Nunca retorne códigos HTTP 200 para respostas de erro." style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 8px 12px; color: var(--text-main); font-size: 12.5px; outline: none; resize: vertical;"></textarea>
+            </div>
+
+            <div>
+              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px;">4. Exemplo de Código Canônico (Opcional)</label>
+              <textarea id="wiz-content-code" rows="3" placeholder="# Exemplo de implementação recomendada&#10;class DomainException(Exception):&#10;    def __init__(self, message: str, status_code: int = 400):&#10;        self.message = message&#10;        self.status_code = status_code" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 8px 12px; color: var(--text-main); font-size: 12px; font-family: var(--font-mono); outline: none; resize: vertical;"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Wizard Navigation Controls -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 18px; border-top: 1px solid var(--border-subtle); padding-top: 14px;">
+          <button class="btn-inspect" id="btn-wiz-prev" style="visibility: hidden;">← Anterior</button>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn-inspect" id="btn-wiz-cancel">Cancelar</button>
+            <button class="btn-project-sync" id="btn-wiz-next">Próximo →</button>
+            <button class="btn-project-sync" id="btn-wiz-finish" style="display: none;">✨ Gerar SKILL.md no Studio</button>
           </div>
         </div>
       </div>

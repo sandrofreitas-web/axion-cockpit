@@ -87,6 +87,13 @@ function initHub() {
     });
   }
 
+  const wizardHubBtn = document.getElementById('btn-wizard-hub');
+  if (wizardHubBtn) {
+    wizardHubBtn.addEventListener('click', () => {
+      openSkillWizard();
+    });
+  }
+
   const closeInspectorBtn = document.getElementById('btn-close-inspector');
   if (closeInspectorBtn) {
     closeInspectorBtn.addEventListener('click', () => {
@@ -801,6 +808,13 @@ def exemplo():
     });
   }
 
+  const wizardStudioBtn = document.getElementById('btn-wizard-studio');
+  if (wizardStudioBtn) {
+    wizardStudioBtn.addEventListener('click', () => {
+      openSkillWizard();
+    });
+  }
+
   const saveBtn = document.getElementById('btn-studio-save');
   if (saveBtn) {
     saveBtn.addEventListener('click', async () => {
@@ -808,7 +822,207 @@ def exemplo():
     });
   }
 
+  // Inicializa listeners do Wizard Modal
+  initWizardModal();
+
   updateLivePreview();
+}
+
+// SKILL WIZARD CONTROLLER
+let currentWizardStep = 1;
+
+function initWizardModal() {
+  const closeBtn = document.getElementById('btn-close-wizard-modal');
+  const cancelBtn = document.getElementById('btn-wiz-cancel');
+  const prevBtn = document.getElementById('btn-wiz-prev');
+  const nextBtn = document.getElementById('btn-wiz-next');
+  const finishBtn = document.getElementById('btn-wiz-finish');
+
+  if (closeBtn) closeBtn.addEventListener('click', closeSkillWizard);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeSkillWizard);
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', () => {
+      if (currentWizardStep > 1) {
+        setWizardStep(currentWizardStep - 1);
+      }
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener('click', () => {
+      if (validateWizardStep(currentWizardStep)) {
+        setWizardStep(currentWizardStep + 1);
+      }
+    });
+  }
+
+  if (finishBtn) {
+    finishBtn.addEventListener('click', () => {
+      generateSkillFromWizard();
+    });
+  }
+}
+
+window.openSkillWizard = function () {
+  currentWizardStep = 1;
+  setWizardStep(1);
+
+  // Limpa campos
+  const nameEl = document.getElementById('wiz-skill-name');
+  const descEl = document.getElementById('wiz-skill-desc');
+  const tagsEl = document.getElementById('wiz-skill-tags');
+  const globsEl = document.getElementById('wiz-skill-globs');
+  const whenEl = document.getElementById('wiz-content-when');
+  const howEl = document.getElementById('wiz-content-how');
+  const neverEl = document.getElementById('wiz-content-never');
+  const codeEl = document.getElementById('wiz-content-code');
+
+  if (nameEl) nameEl.value = '';
+  if (descEl) descEl.value = '';
+  if (tagsEl) tagsEl.value = '';
+  if (globsEl) globsEl.value = '';
+  if (whenEl) whenEl.value = '';
+  if (howEl) howEl.value = '';
+  if (neverEl) neverEl.value = '';
+  if (codeEl) codeEl.value = '';
+
+  const modal = document.getElementById('skill-wizard-modal');
+  if (modal) modal.classList.add('open');
+};
+
+window.closeSkillWizard = function () {
+  const modal = document.getElementById('skill-wizard-modal');
+  if (modal) modal.classList.remove('open');
+};
+
+function setWizardStep(step) {
+  currentWizardStep = step;
+
+  // Atualiza painéis
+  for (let i = 1; i <= 3; i++) {
+    const panel = document.getElementById(`wizard-panel-${i}`);
+    const ind = document.getElementById(`wizard-step-indicator-${i}`);
+    if (panel) panel.style.display = i === step ? 'block' : 'none';
+    if (ind) {
+      if (i === step) {
+        ind.style.color = 'var(--accent-cyan)';
+      } else if (i < step) {
+        ind.style.color = '#34D399';
+      } else {
+        ind.style.color = 'var(--text-dim)';
+      }
+    }
+  }
+
+  // Botões de navegação
+  const prevBtn = document.getElementById('btn-wiz-prev');
+  const nextBtn = document.getElementById('btn-wiz-next');
+  const finishBtn = document.getElementById('btn-wiz-finish');
+
+  if (prevBtn) prevBtn.style.visibility = step === 1 ? 'hidden' : 'visible';
+  if (nextBtn) nextBtn.style.display = step === 3 ? 'none' : 'inline-flex';
+  if (finishBtn) finishBtn.style.display = step === 3 ? 'inline-flex' : 'none';
+}
+
+function validateWizardStep(step) {
+  if (step === 1) {
+    const name = (document.getElementById('wiz-skill-name')?.value || '').trim();
+    const desc = (document.getElementById('wiz-skill-desc')?.value || '').trim();
+
+    if (!name) {
+      alert('Por favor, informe o nome da skill.');
+      document.getElementById('wiz-skill-name')?.focus();
+      return false;
+    }
+
+    if (!/^[a-z0-9_-]+$/.test(name)) {
+      alert('O nome da skill deve conter apenas letras minúsculas, números, hífens ou underscores (ex: minha-regra).');
+      document.getElementById('wiz-skill-name')?.focus();
+      return false;
+    }
+
+    if (!desc) {
+      alert('Por favor, descreva quando e como a IA deve acionar esta skill.');
+      document.getElementById('wiz-skill-desc')?.focus();
+      return false;
+    }
+  }
+  return true;
+}
+
+function generateSkillFromWizard() {
+  const name = (document.getElementById('wiz-skill-name')?.value || '').trim();
+  const desc = (document.getElementById('wiz-skill-desc')?.value || '').trim();
+  const tagsStr = (document.getElementById('wiz-skill-tags')?.value || '').trim();
+  const version = (document.getElementById('wiz-skill-version')?.value || '1.0.0').trim();
+  const globsStr = (document.getElementById('wiz-skill-globs')?.value || '').trim();
+
+  // Ferramentas compatíveis
+  const compat = [];
+  if (document.getElementById('wiz-compat-antigravity')?.checked) compat.push('antigravity');
+  if (document.getElementById('wiz-compat-claude')?.checked) compat.push('claude');
+  if (document.getElementById('wiz-compat-cursor')?.checked) compat.push('cursor');
+  if (document.getElementById('wiz-compat-gemini')?.checked) compat.push('gemini');
+  if (document.getElementById('wiz-compat-windsurf')?.checked) compat.push('windsurf');
+  if (document.getElementById('wiz-compat-copilot')?.checked) compat.push('copilot');
+
+  const tags = tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : [name];
+  const globs = globsStr ? globsStr.split(',').map((g) => g.trim()).filter(Boolean) : [];
+
+  const whenText = (document.getElementById('wiz-content-when')?.value || '').trim();
+  const howText = (document.getElementById('wiz-content-how')?.value || '').trim();
+  const neverText = (document.getElementById('wiz-content-never')?.value || '').trim();
+  const codeText = (document.getElementById('wiz-content-code')?.value || '').trim();
+
+  // Montagem do YAML Frontmatter
+  let yamlFrontmatter = `---\nname: ${name}\ndescription: >\n  ${desc.replace(/\n/g, '\n  ')}\ntags: [${tags.join(', ')}]\n`;
+  if (globs.length > 0) {
+    yamlFrontmatter += `globs: [${globs.map((g) => `"${g}"`).join(', ')}]\n`;
+  }
+  yamlFrontmatter += `compatible_with: [${compat.join(', ')}]\nstatus: stable\nversion: "${version}"\n---\n\n`;
+
+  // Montagem do Markdown
+  let mdBody = `# ${name.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}\n\n`;
+
+  if (whenText) {
+    mdBody += `## Quando usar\n\n${whenText}\n\n`;
+  }
+
+  if (howText) {
+    mdBody += `## Como fazer / Diretrizes\n\n${howText}\n\n`;
+  }
+
+  if (neverText) {
+    mdBody += `## O que NUNCA fazer\n\n${neverText}\n\n`;
+  }
+
+  if (codeText) {
+    mdBody += `## Exemplo Canônico\n\n\`\`\`\n${codeText}\n\`\`\`\n\n`;
+  }
+
+  const completeSkillMd = yamlFrontmatter + mdBody;
+
+  // Carrega no Studio
+  closeSkillWizard();
+
+  // Troca para aba Studio
+  document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
+  document.querySelectorAll('.view-panel').forEach((p) => p.classList.remove('active'));
+
+  const studioNav = document.querySelector('.nav-item[data-tab="studio"]');
+  const studioPanel = document.getElementById('view-studio');
+  if (studioNav) studioNav.classList.add('active');
+  if (studioPanel) studioPanel.classList.add('active');
+
+  const editor = document.getElementById('studio-editor');
+  if (editor) {
+    editor.value = completeSkillMd;
+    editor.focus();
+  }
+
+  updateLivePreview();
+  showConsole(`🧙‍♂️ Skill [${name}] gerada com sucesso pelo assistente! Clique em "Salvar / Publicar Skill" para persistir no catálogo.`);
 }
 
 async function saveCurrentSkillFromStudio() {
