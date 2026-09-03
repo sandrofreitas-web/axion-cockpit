@@ -607,14 +607,54 @@ window.openLocalSkillInspector = function (pIdx, lIdx) {
       </div>
 
       <div style="padding-top: 10px; border-top: 1px solid var(--border-subtle); display: flex; gap: 8px;">
-        <button class="btn-project-sync" style="flex: 1; justify-content: center;" onclick="loadLocalSkillIntoStudio('${escapeHtml(rawSource).replace(/'/g, "\\'")}')">
-          🚀 Promover / Editar no Studio
+        <button class="btn-project-sync" style="flex: 1; justify-content: center;" onclick="promoteSkill('${project.path.replace(/\\/g, '\\\\')}', '${loc.name}')">
+          🚀 Promover para Global (1-Click)
+        </button>
+        <button class="btn-inspect" onclick="loadLocalSkillIntoStudio('${escapeHtml(rawSource).replace(/'/g, "\\'")}')">
+          ✏️ Studio
         </button>
       </div>
     `;
   }
 
   if (inspectorPane) inspectorPane.classList.add('open');
+};
+
+window.promoteSkill = async function (projectPath, skillName) {
+  if (!confirm(`Deseja promover a skill local '${skillName}' para o catálogo global compartilhado?\n\nEla será movida para 'skills-library/global/${skillName}/', registrada no catalog.json e sincronizada automaticamente.`)) {
+    return;
+  }
+
+  showConsole(`🚀 Iniciando promoção da skill local [${skillName}]...`);
+  try {
+    const res = await fetch('/api/skill/promote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_path: projectPath, skill_name: skillName }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      appendConsole(`❌ Erro na promoção: ${data.error || 'Falha na requisição'}`);
+      alert(`Erro ao promover skill: ${data.error}`);
+      return;
+    }
+
+    appendConsole(`✓ ${data.message}`);
+    if (data.sync_output) {
+      appendConsole(`\n${data.sync_output}`);
+    }
+
+    catalogState = data.catalog || catalogState;
+    await refreshAll();
+
+    // Fecha o inspector da frota e abre a nova skill no Hub
+    closeFleetInspector();
+    openSkillInspector(skillName);
+    alert(`🎉 Skill '${skillName}' promovida para o catálogo global com sucesso!`);
+  } catch (err) {
+    appendConsole(`❌ Erro de conexão ao promover skill: ${err}`);
+  }
 };
 
 window.closeFleetInspector = function () {
@@ -888,29 +928,93 @@ function renderActivePreview() {
 // METRICS VIEW
 function renderMetrics() {
   const container = document.getElementById('metrics-insights-container');
+  if (!container) return;
+
+  // 1. Coleta todas as skills locais nos projetos da frota
+  const allLocalSkills = [];
+  fleetState.forEach((project) => {
+    (project.local_skills || []).forEach((loc) => {
+      allLocalSkills.push({
+        project_name: project.name,
+        project_path: project.path,
+        skill_name: loc.name,
+        description: (loc.frontmatter && loc.frontmatter.description) || 'Skill local exclusiva do projeto',
+        path: loc.path || '',
+      });
+    });
+  });
+
+  let promotionCardsHtml = '';
+  if (allLocalSkills.length > 0) {
+    promotionCardsHtml = `
+      <div style="margin-bottom: 24px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+          <h3 style="font-size: 16px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+            <span>🚀</span> Oportunidades de Promoção Detectadas na Frota (${allLocalSkills.length})
+          </h3>
+          <span class="badge-version">Regra de Ouro: Skill útil em ≥ 2 projetos deve ser Global</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px;">
+          ${allLocalSkills.map((item) => `
+            <div class="stat-card" style="border-left: 4px solid var(--accent-cyan); display: flex; flex-direction: column; justify-content: space-between; gap: 12px;">
+              <div>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                  <h4 style="font-size: 15px; font-weight: 700; color: #38BDF8;">🧩 ${item.skill_name}</h4>
+                  <span class="badge-status draft">Local</span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-dim); margin-bottom: 6px;">Projeto: <strong>${item.project_name}</strong></div>
+                <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.45;">${item.description}</p>
+              </div>
+              <div style="display: flex; gap: 8px; border-top: 1px solid var(--border-subtle); padding-top: 10px;">
+                <button class="btn-project-sync" style="flex: 1; justify-content: center;" onclick="promoteSkill('${item.project_path.replace(/\\/g, '\\\\')}', '${item.skill_name}')">
+                  🚀 Promover para Global Agora
+                </button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } else {
+    promotionCardsHtml = `
+      <div class="stat-card" style="margin-bottom: 24px; border-left: 4px solid var(--accent-emerald);">
+        <div>
+          <h4 style="font-size: 15px; margin-bottom: 4px; color: #34D399;">✓ Nenhuma Skill Local Pendente</h4>
+          <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.4;">
+            Todas as skills dos projetos estão catalogadas e padronizadas no repositório global!
+          </p>
+        </div>
+      </div>
+    `;
+  }
+
   container.innerHTML = `
+    ${promotionCardsHtml}
+    <h3 style="font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+      <span>📊</span> Telemetria & Padrões de Governança
+    </h3>
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
       <div class="stat-card" style="border-left: 4px solid var(--accent-emerald);">
         <div>
           <h4 style="font-size: 15px; margin-bottom: 4px;">🎯 Padrão de Dependências Python</h4>
           <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
-            A skill <code>managing-python-dependencies</code> (uv) está ativa em 100% dos projetos elegíveis.
-          </p>
-        </div>
-      </div>
-      <div class="stat-card" style="border-left: 4px solid var(--accent-cyan);">
-        <div>
-          <h4 style="font-size: 15px; margin-bottom: 4px;">🚀 Oportunidade de Promoção</h4>
-          <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
-            O <code>Project_Siaebr</code> possui uma rotina de deploy Docker Compose. Caso use em outros projetos, considere promover para o catálogo global!
+            A skill <code>managing-python-dependencies</code> (uv) e <code>fastapi-clean-architecture</code> estão ativas para consumo universal.
           </p>
         </div>
       </div>
       <div class="stat-card" style="border-left: 4px solid var(--accent-purple);">
         <div>
-          <h4 style="font-size: 15px; margin-bottom: 4px;">⚡ Meta-Skill Creator Integrada</h4>
+          <h4 style="font-size: 15px; margin-bottom: 4px;">⚡ Compilador Multi-LLM Ativo</h4>
           <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
-            A meta-skill <code>skill-creator</code> está catalogada para orientar a criação de novas instruções com progressive disclosure.
+            Transpilação simultânea para 6 ferramentas: Antigravity, Claude, Cursor (.mdc), Gemini, Windsurf e Copilot.
+          </p>
+        </div>
+      </div>
+      <div class="stat-card" style="border-left: 4px solid var(--accent-amber);">
+        <div>
+          <h4 style="font-size: 15px; margin-bottom: 4px;">🛡️ CI & Integridade Garantida</h4>
+          <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
+            Linter automático de sintaxe YAML, lockfiles e catálogo versionado no GitHub.
           </p>
         </div>
       </div>

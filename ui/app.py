@@ -9,6 +9,8 @@ import http.server
 import json
 import mimetypes
 import os
+import re
+import shutil
 import socketserver
 import subprocess
 import sys
@@ -379,6 +381,96 @@ class SkillsOSRequestHandler(http.server.SimpleHTTPRequestHandler):
                 })
             except Exception as e:
                 self.send_json({"error": f"Erro ao salvar skill: {e}"}, status=400)
+            return
+
+        if parsed.path == "/api/skill/promote":
+            project_path_str = payload.get("project_path", "").strip()
+            skill_name = payload.get("skill_name", "").strip()
+
+            if not project_path_str or not skill_name:
+                self.send_json({"error": "project_path e skill_name são obrigatórios"}, status=400)
+                return
+
+            p_path = Path(project_path_str).resolve()
+            src_skill_dir = p_path / "skills" / "local" / skill_name
+            src_skill_file = src_skill_dir / "SKILL.md"
+
+            if not src_skill_file.exists():
+                self.send_json({"error": f"Skill local não encontrada em: {src_skill_file}"}, status=404)
+                return
+
+            try:
+                # 1. Lê e valida o SKILL.md da skill local
+                raw_content = src_skill_file.read_text(encoding="utf-8")
+                fm, body = sync_skills.parse_frontmatter(raw_content)
+
+                dest_global_dir = LIBRARY_ROOT / "global" / skill_name
+                dest_global_dir.mkdir(parents=True, exist_ok=True)
+
+                # 2. Copia todos os arquivos (SKILL.md, scripts/, references/, etc.) para global
+                shutil.copytree(src_skill_dir, dest_global_dir, dirs_exist_ok=True)
+
+                # 3. Registra no catalog.json global
+                cat_path = LIBRARY_ROOT / "catalog.json"
+                catalog = {}
+                if cat_path.exists():
+                    try:
+                        catalog = json.loads(cat_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+
+                existing_entry = catalog.get(skill_name, {})
+                used_by = existing_entry.get("used_by", [])
+                if p_path.name not in used_by:
+                    used_by.append(p_path.name)
+
+                desc = fm.get("description", "")
+                version = str(fm.get("version", "1.0.0"))
+                tags = fm.get("tags", ["promoted", "local"])
+                if isinstance(tags, str):
+                    tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+                compat = fm.get("compatible_with", ["claude", "gemini", "cursor", "windsurf", "copilot", "antigravity"])
+
+                catalog[skill_name] = {
+                    "path": f"global/{skill_name}/SKILL.md",
+                    "description": desc,
+                    "tags": tags,
+                    "compatible_with": compat,
+                    "used_by": used_by,
+                    "status": "stable",
+                    "version": version,
+                }
+                cat_path.write_text(json.dumps(catalog, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+                # 4. Remove a pasta local após migração
+                shutil.rmtree(src_skill_dir)
+
+                # 5. Registra no skills.lock.json do projeto
+                lock_file = p_path / "skills.lock.json"
+                lock_data = {"library_path": ".skills-library", "skills": {}}
+                if lock_file.exists():
+                    try:
+                        lock_data = json.loads(lock_file.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+                lock_skills = lock_data.get("skills", {})
+                lock_skills[skill_name] = {"version": version}
+                lock_data["skills"] = lock_skills
+                lock_file.write_text(json.dumps(lock_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+                # 6. Executa sincronização do projeto
+                sync_out = self.run_sync(str(p_path))
+
+                self.send_json({
+                    "success": True,
+                    "message": f"Skill '{skill_name}' promovida com sucesso para global/{skill_name}/SKILL.md e sincronizada em {p_path.name}!",
+                    "skill_name": skill_name,
+                    "sync_output": sync_out,
+                    "catalog": get_catalog_data(),
+                })
+            except Exception as e:
+                self.send_json({"error": f"Erro ao promover skill: {e}"}, status=500)
             return
 
         if parsed.path == "/api/validate":
