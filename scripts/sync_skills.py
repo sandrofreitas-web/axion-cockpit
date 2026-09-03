@@ -279,9 +279,13 @@ def collect_skills(project_dir: Path, library_root: Path) -> list[Dict[str, Any]
 
 
 def supports(skill: Dict[str, Any], tool: str) -> bool:
-    compat = skill["frontmatter"].get("compatible_with", [])
+    compat = skill["frontmatter"].get("compatible_with")
+    if compat is None and "catalog_meta" in skill:
+        compat = skill["catalog_meta"].get("compatible_with")
     if not compat:
         return True
+    if tool == "antigravity":
+        return "antigravity" in compat or "claude" in compat or "gemini" in compat
     return tool in compat
 
 
@@ -302,6 +306,7 @@ def clean_target_directories(project_dir: Path):
         project_dir / ".cursor" / "rules",
         project_dir / ".windsurf" / "rules",
         project_dir / ".gemini" / "skills",
+        project_dir / ".agents" / "skills",
     ]
     for target in targets:
         if target.exists():
@@ -328,6 +333,36 @@ def write_claude(skills: List[Dict[str, Any]], project_dir: Path) -> int:
         copy_skill_resources(skill["dir_path"], dest)
         count += 1
 
+    return count
+
+
+def write_antigravity(skills: List[Dict[str, Any]], project_dir: Path) -> int:
+    """Gera o formato nativo do Google Antigravity (.agents/skills/<nome>/SKILL.md) e AGENTS.md."""
+    out_dir = project_dir / ".agents" / "skills"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    count = 0
+    agents_sections = [
+        "# AGENTS.md — Global & Local Workspace Skills\n<!-- Gerado por sync_skills.py — não edite manualmente -->\n"
+    ]
+
+    for skill in skills:
+        if not supports(skill, "antigravity"):
+            continue
+        name = skill["frontmatter"]["name"]
+        dest = out_dir / name
+        dest.mkdir(parents=True, exist_ok=True)
+
+        # Escreve o SKILL.md canônico
+        (dest / "SKILL.md").write_text(skill["raw"], encoding="utf-8")
+
+        # Copia recursos complementares (scripts, references, assets)
+        copy_skill_resources(skill["dir_path"], dest)
+
+        desc = skill["frontmatter"].get("description", "")
+        agents_sections.append(f"## Skill: `{name}`\n> {desc}\n\nPath: `.agents/skills/{name}/SKILL.md`\n")
+        count += 1
+
+    (project_dir / "AGENTS.md").write_text("\n".join(agents_sections), encoding="utf-8")
     return count
 
 
@@ -536,6 +571,9 @@ def main():
     print("\nGerando artefatos:")
     c_claude = write_claude(skills, project_dir)
     print(f"  ✓ .claude/skills/             -> {c_claude} skills (com subpastas de recursos)")
+
+    c_antigravity = write_antigravity(skills, project_dir)
+    print(f"  ✓ .agents/skills/ & AGENTS.md -> {c_antigravity} skills (Antigravity)")
 
     c_gemini = write_gemini(skills, project_dir)
     print(f"  ✓ .gemini/GEMINI.md           -> {c_gemini} skills importadas")

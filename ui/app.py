@@ -123,6 +123,7 @@ def inspect_project(proj: Dict[str, Any]) -> Dict[str, Any]:
 
     # 3. Status de saídas geradas
     result["generated_status"] = {
+        "antigravity": (p_path / ".agents" / "skills").exists(),
         "claude": (p_path / ".claude" / "skills").exists(),
         "cursor": (p_path / ".cursor" / "rules").exists(),
         "gemini": (p_path / ".gemini" / "GEMINI.md").exists(),
@@ -291,11 +292,20 @@ class SkillsOSRequestHandler(http.server.SimpleHTTPRequestHandler):
                 # Windsurf Preview
                 windsurf_preview = f"{body}\n"
 
+                # Antigravity Preview (.agents/skills/<name>/SKILL.md & AGENTS.md entry)
+                antigravity_preview = (
+                    f"// [.agents/skills/{name}/SKILL.md]:\n"
+                    f"{raw_text}\n\n"
+                    f"// [Entrada no AGENTS.md]:\n"
+                    f"## Skill: `{name}`\n> {desc}\n\nPath: `.agents/skills/{name}/SKILL.md`\n"
+                )
+
                 self.send_json({
                     "frontmatter": fm,
                     "body": body,
                     "previews": {
                         "cursor": cursor_preview,
+                        "antigravity": antigravity_preview,
                         "claude": claude_preview,
                         "gemini": {"file": gemini_file, "import": gemini_import},
                         "windsurf": windsurf_preview,

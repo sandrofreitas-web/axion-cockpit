@@ -154,6 +154,7 @@ function renderHub(query = '') {
       </div>
       <div class="skill-footer">
         <div class="compat-icons">
+          <span class="ide-badge ${compat.includes('antigravity') ? 'active' : ''}">Agents</span>
           <span class="ide-badge ${compat.includes('claude') ? 'active' : ''}">Claude</span>
           <span class="ide-badge ${compat.includes('cursor') ? 'active' : ''}">Cursor</span>
           <span class="ide-badge ${compat.includes('gemini') ? 'active' : ''}">Gemini</span>
@@ -457,6 +458,7 @@ function renderFleet(query = '') {
       <div class="fleet-ide-status" style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-dim); padding-top: 8px;">
         <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
           <span style="font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;">Compiladores:</span>
+          <span class="ide-badge ${project.generated_status.antigravity ? 'active' : ''}">.agents ${project.generated_status.antigravity ? '✓' : '✗'}</span>
           <span class="ide-badge ${project.generated_status.cursor ? 'active' : ''}">.cursor ${project.generated_status.cursor ? '✓' : '✗'}</span>
           <span class="ide-badge ${project.generated_status.claude ? 'active' : ''}">.claude ${project.generated_status.claude ? '✓' : '✗'}</span>
           <span class="ide-badge ${project.generated_status.gemini ? 'active' : ''}">.gemini ${project.generated_status.gemini ? '✓' : '✗'}</span>
@@ -517,6 +519,7 @@ window.openProjectInspector = function (pIdx) {
       <div style="margin-bottom: 14px;">
         <h4 style="font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Status dos Formatos Gerados</h4>
         <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <span class="ide-badge ${project.generated_status.antigravity ? 'active' : ''}">Antigravity (.agents/) ${project.generated_status.antigravity ? '✓' : '✗'}</span>
           <span class="ide-badge ${project.generated_status.cursor ? 'active' : ''}">Cursor (.mdc) ${project.generated_status.cursor ? '✓' : '✗'}</span>
           <span class="ide-badge ${project.generated_status.claude ? 'active' : ''}">Claude (.claude/) ${project.generated_status.claude ? '✓' : '✗'}</span>
           <span class="ide-badge ${project.generated_status.gemini ? 'active' : ''}">Gemini (GEMINI.md) ${project.generated_status.gemini ? '✓' : '✗'}</span>

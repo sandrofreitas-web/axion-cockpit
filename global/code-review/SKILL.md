@@ -7,7 +7,7 @@ description: >
   mesmo que ele não use a palavra "review" explicitamente (ex: "dá uma
   olhada nesse diff", "isso tá pronto pra subir?").
 tags: [dev, review, git]
-compatible_with: [claude, cursor, windsurf, copilot]
+compatible_with: [claude, cursor, windsurf, copilot, antigravity]
 status: stable
 version: "1.0"
 ---

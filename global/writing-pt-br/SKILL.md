@@ -6,7 +6,7 @@ description: >
   sempre que o usuário pedir para escrever, revisar ou reescrever um texto
   em português, mesmo sem mencionar "estilo" explicitamente.
 tags: [writing, pt-br, style]
-compatible_with: [claude, gemini, cursor, windsurf, copilot]
+compatible_with: [claude, gemini, cursor, windsurf, copilot, antigravity]
 status: stable
 version: "1.0"
 ---
