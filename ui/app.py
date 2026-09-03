@@ -306,6 +306,71 @@ class SkillsOSRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"error": f"Erro de parsing: {e}"}, status=400)
             return
 
+        if parsed.path == "/api/skill/save":
+            raw_text = payload.get("raw", "").strip()
+            if not raw_text:
+                self.send_json({"error": "Conteúdo raw do SKILL.md é obrigatório"}, status=400)
+                return
+
+            try:
+                fm, body = sync_skills.parse_frontmatter(raw_text)
+                name = fm.get("name", "").strip()
+                if not name:
+                    self.send_json({"error": "O campo 'name' é obrigatório no frontmatter YAML."}, status=400)
+                    return
+
+                if not re.match(r"^[a-zA-Z0-9_-]+$", name):
+                    self.send_json({"error": "O nome da skill deve conter apenas letras, números, hífens ou underscores."}, status=400)
+                    return
+
+                desc = fm.get("description", "")
+                version = str(fm.get("version", "1.0.0"))
+                tags = fm.get("tags", [])
+                if isinstance(tags, str):
+                    tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+                # Cria diretório global da skill
+                skill_dir = LIBRARY_ROOT / "global" / name
+                skill_dir.mkdir(parents=True, exist_ok=True)
+                skill_file = skill_dir / "SKILL.md"
+                skill_file.write_text(raw_text, encoding="utf-8")
+
+                # Atualiza catalog.json
+                cat_path = LIBRARY_ROOT / "catalog.json"
+                catalog = {}
+                if cat_path.exists():
+                    try:
+                        catalog = json.loads(cat_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+
+                existing_entry = catalog.get(name, {})
+                compatible_with = existing_entry.get("compatible_with", ["claude", "gemini", "cursor", "windsurf", "copilot"])
+                used_by = existing_entry.get("used_by", [])
+                status = existing_entry.get("status", "stable")
+
+                catalog[name] = {
+                    "path": f"global/{name}/SKILL.md",
+                    "description": desc,
+                    "tags": tags,
+                    "compatible_with": compatible_with,
+                    "used_by": used_by,
+                    "status": status,
+                    "version": version,
+                }
+
+                cat_path.write_text(json.dumps(catalog, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+                self.send_json({
+                    "success": True,
+                    "message": f"Skill '{name}' salva com sucesso em global/{name}/SKILL.md e catalog.json!",
+                    "skill_name": name,
+                    "catalog": get_catalog_data(),
+                })
+            except Exception as e:
+                self.send_json({"error": f"Erro ao salvar skill: {e}"}, status=400)
+            return
+
         if parsed.path == "/api/validate":
             try:
                 sync_script = SCRIPTS_DIR / "sync_skills.py"

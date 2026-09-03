@@ -148,28 +148,23 @@ substituto das pastas nativas quando a ferramenta suporta algo mais rico
 
 ---
 
-## 🚀 Guia Rápido de Uso
-
-### 1. Inicializar o Repositório Central (Primeira vez)
+### 4. Executar o Dashboard Web (Skills OS — Antigravity Edition)
+Para gerenciar visualmente o catálogo, frota de projetos e transpilar skills em tempo real:
 ```bash
-cd skills-library
-git init
-git remote add origin https://github.com/sandrofreitas-web/skills-library.git
-git add .
-git commit -m "feat: initial skills library scaffold"
-git branch -M main
-git push -u origin main
+uv run python skills-library/ui/app.py
+# ou (dentro da pasta ui):
+python app.py
 ```
+> Acesse no navegador: `http://localhost:4100`
 
-### 2. Adicionar a Library a um Projeto Consumidor
-Na raiz de qualquer projeto de código:
-```bash
-git submodule add https://github.com/sandrofreitas-web/skills-library.git .skills-library
-```
+---
 
-### 3. Sincronizar as Skills no Projeto
-```bash
-python3 .skills-library/scripts/sync_skills.py .
-```
-*(ou `python .skills-library/scripts/sync_skills.py .` no Windows)*
+## 🖥️ Skills OS — Antigravity IDE Dashboard
+
+O dashboard web inclui:
+- **Hub Global com Split Inspector:** Busca dinâmica, inspeção side-by-side com visualização de metadados, código canônico `SKILL.md` e ação de edição instantânea.
+- **Frota de Projetos (Fleet Manager):** Monitoramento de repositórios conectados, validação das pastas compiladas (`.cursor`, `.claude`, `.gemini`, etc.), ativação seletiva de skills no `skills.lock.json` e sincronização em massa ou individual.
+- **Skill Studio & Live Preview:** Editor com visual sistêmico Antigravity IDE (fontes monoespaçadas balanceadas), validação de YAML frontmatter e preview compilado simultâneo para Cursor, Claude, Gemini, Windsurf e Copilot, com botão **`💾 Salvar / Publicar Skill`** integrado ao `catalog.json`.
+- **Console / Terminal Integrado:** Registro de compilação em tempo real e linter de CI integrado.
+
 

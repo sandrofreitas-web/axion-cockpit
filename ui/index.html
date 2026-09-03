@@ -3,48 +3,92 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Skills OS — Platform & Governance Dashboard</title>
+  <title>Skills OS — Antigravity IDE Multi-LLM Platform</title>
   <link rel="stylesheet" href="static/styles.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%20100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
 </head>
 <body>
 
-  <!-- Sidebar Navigation -->
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-icon">⚡</div>
-      <div>
-        <div class="brand-title">Skills OS</div>
-        <span class="brand-version">v1.0.0</span>
+  <!-- Top System Header Bar -->
+  <header class="system-topbar">
+    <div class="topbar-left">
+      <div class="topbar-brand">
+        <span class="brand-glyph">⚡</span>
+        <span class="brand-name">SKILLS<span class="brand-accent">.OS</span></span>
+        <span class="brand-chip">ANTIGRAVITY EDITION</span>
+      </div>
+      <div class="topbar-divider"></div>
+      <div class="topbar-breadcrumb">
+        <span class="crumb-root">WORKSPACE</span>
+        <span class="crumb-sep">/</span>
+        <span class="crumb-current">skills-scaffold</span>
       </div>
     </div>
-
-    <nav class="nav-group">
-      <a class="nav-item active" data-tab="hub">
-        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-        Hub Global
-      </a>
-      <a class="nav-item" data-tab="fleet">
-        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
-        Frota de Projetos
-      </a>
-      <a class="nav-item" data-tab="studio">
-        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-        Skill Studio (Preview)
-      </a>
-      <a class="nav-item" data-tab="metrics">
-        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-        Ciclo de Vida & Métricas
-      </a>
-    </nav>
-
-    <div class="sidebar-footer">
-      <button class="sync-all-btn" id="btn-sync-all">
-        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-        Sincronizar Frota
+    
+    <div class="topbar-right">
+      <div class="system-status-pill">
+        <span class="pulse-dot green"></span>
+        <span class="status-label">SERVER 127.0.0.1:4100</span>
+      </div>
+      <div class="system-status-pill">
+        <span class="pulse-dot blue"></span>
+        <span class="status-label">MULTI-LLM ENGINE READY</span>
+      </div>
+      <button class="topbar-btn" id="btn-toggle-console" title="Abrir/Fechar Terminal">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        Terminal
       </button>
     </div>
-  </aside>
+  </header>
+
+  <div class="workbench-layout">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-section-title">NAVIGATION // WORKSPACES</div>
+
+      <nav class="nav-group">
+        <a class="nav-item active" data-tab="hub">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+          <span>Hub Global</span>
+          <span class="nav-badge" id="nav-count-hub">4</span>
+        </a>
+        <a class="nav-item" data-tab="fleet">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+          <span>Frota de Projetos</span>
+          <span class="nav-badge" id="nav-count-fleet">5</span>
+        </a>
+        <a class="nav-item" data-tab="studio">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+          <span>Skill Studio (Preview)</span>
+        </a>
+        <a class="nav-item" data-tab="metrics">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          <span>Ciclo de Vida & Métricas</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-telemetry">
+        <div class="telemetry-row">
+          <span>CANONICAL:</span>
+          <strong class="mono-text">SKILL.md</strong>
+        </div>
+        <div class="telemetry-row">
+          <span>COMPILERS:</span>
+          <strong class="mono-text">5 IDEs</strong>
+        </div>
+        <div class="telemetry-row">
+          <span>ENV:</span>
+          <strong class="mono-text">UV / PY 3.13</strong>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="sync-all-btn" id="btn-sync-all">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span>Sincronizar Frota</span>
+        </button>
+      </div>
+    </aside>
 
   <!-- Main Wrapper -->
   <main class="main-wrapper">
@@ -56,7 +100,10 @@
           <h1>Hub Global de Skills</h1>
           <p>Catálogo centralizado e versionado de habilidades compartilhadas.</p>
         </div>
-        <button class="btn-inspect" id="btn-validate-ci">⚡ Validar Linter (CI Check)</button>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn-inspect" id="btn-validate-ci">⚡ Validar Linter (CI Check)</button>
+          <button class="btn-project-sync" id="btn-new-skill-hub">+ Nova Skill</button>
+        </div>
       </div>
 
       <div class="search-filter-bar">
@@ -66,8 +113,32 @@
         </div>
       </div>
 
-      <div class="cards-grid" id="hub-cards-container">
-        <!-- Injetado dinamicamente via app.js -->
+      <!-- Hub Split Workbench Layout -->
+      <div class="hub-workbench-split">
+        <div class="hub-main-area">
+          <div class="cards-grid" id="hub-cards-container">
+            <!-- Injetado dinamicamente via app.js -->
+          </div>
+        </div>
+
+        <aside class="hub-inspector-pane" id="hub-inspector-pane">
+          <div class="inspector-header">
+            <div class="inspector-title-group">
+              <span class="inspector-badge">INSPECTOR</span>
+              <h3 id="inspector-skill-title">Selecione uma Skill</h3>
+            </div>
+            <div class="inspector-header-actions">
+              <button class="btn-inspect-mini" id="btn-inspector-edit" style="display: none;" title="Editar no Studio">✏️ Editar no Studio</button>
+              <button class="btn-inspect-mini" id="btn-close-inspector" title="Fechar Split">✕</button>
+            </div>
+          </div>
+          <div class="inspector-body" id="inspector-skill-body">
+            <div class="inspector-empty-state">
+              <div style="font-size: 24px; margin-bottom: 8px;">🔍</div>
+              <p>Clique em <strong>Inspecionar ↗</strong> em qualquer card de skill para visualizar os detalhes, metadados e o código canônico aqui no split lateral.</p>
+            </div>
+          </div>
+        </aside>
       </div>
     </section>
 
@@ -80,12 +151,43 @@
         </div>
         <div style="display: flex; gap: 10px;">
           <button class="btn-inspect" id="btn-toggle-all-fleet">📐 Compactar / Expandir Todos</button>
-          <button class="btn-inspect" id="btn-add-project-modal">+ Adicionar Projeto</button>
+          <button class="btn-project-sync" id="btn-add-project-modal">+ Adicionar Projeto</button>
         </div>
       </div>
 
-      <div id="fleet-cards-container">
-        <!-- Injetado dinamicamente via app.js -->
+      <div class="search-filter-bar">
+        <div class="search-box">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <input type="text" id="fleet-search" placeholder="Filtrar projetos por nome, caminho no disco ou skill...">
+        </div>
+      </div>
+
+      <!-- Fleet Split Workbench Layout -->
+      <div class="fleet-workbench-split">
+        <div class="fleet-main-area">
+          <div id="fleet-cards-container">
+            <!-- Injetado dinamicamente via app.js -->
+          </div>
+        </div>
+
+        <aside class="fleet-inspector-pane" id="fleet-inspector-pane">
+          <div class="inspector-header">
+            <div class="inspector-title-group">
+              <span class="inspector-badge">PROJECT INSPECTOR</span>
+              <h3 id="inspector-project-title">Detalhes do Projeto</h3>
+            </div>
+            <div class="inspector-header-actions">
+              <button class="btn-inspect-mini" id="btn-inspector-project-sync" style="display: none;" title="Sincronizar Projeto">⚡ 1-Click Sync</button>
+              <button class="btn-inspect-mini" id="btn-close-fleet-inspector" title="Fechar Split">✕</button>
+            </div>
+          </div>
+          <div class="inspector-body" id="inspector-project-body">
+            <div class="inspector-empty-state">
+              <div style="font-size: 24px; margin-bottom: 8px;">🏢</div>
+              <p>Clique em <strong>Inspecionar ↗</strong> em qualquer projeto ou skill local para visualizar telemetria detalhada, status das IDEs e código canônico aqui no split lateral.</p>
+            </div>
+          </div>
+        </aside>
       </div>
     </section>
 
@@ -93,10 +195,13 @@
     <section class="view-panel" id="view-studio">
       <div class="top-bar">
         <div class="page-header">
-          <h1>Skill Studio & Live Preview Multi-IDE</h1>
-          <p>Escreva no formato canônico SKILL.md e veja a transpilação instantânea para cada ferramenta.</p>
+          <h1 id="studio-header-title">Skill Studio & Live Preview Multi-IDE</h1>
+          <p>Escreva no formato canônico SKILL.md e salve diretamente no catálogo com transpilação instantânea.</p>
         </div>
-        <button class="btn-project-sync" id="btn-studio-template">Carregar Template Canônico</button>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn-inspect" id="btn-studio-template">📄 Template Canônico</button>
+          <button class="btn-project-sync" id="btn-studio-save">💾 Salvar / Publicar Skill</button>
+        </div>
       </div>
 
       <div class="studio-grid">
@@ -147,6 +252,7 @@
     </section>
 
   </main>
+  </div>
 
   <!-- Output Console Drawer -->
   <div class="output-console" id="output-console">
@@ -160,15 +266,32 @@
     <pre class="console-body" id="console-output-text"></pre>
   </div>
 
-  <!-- Modal for Skill Detail -->
-  <div class="modal-overlay" id="skill-modal">
-    <div class="modal-dialog">
+  <!-- Modal for Add Project -->
+  <div class="modal-overlay" id="project-modal">
+    <div class="modal-dialog" style="max-width: 520px;">
       <div class="modal-header">
-        <h3 id="modal-skill-title">Detalhes da Skill</h3>
-        <button class="btn-inspect" id="btn-close-modal">✕</button>
+        <h3>+ Adicionar Projeto à Frota</h3>
+        <button class="btn-inspect" id="btn-close-project-modal">✕</button>
       </div>
-      <div class="modal-body" id="modal-skill-body">
-        <!-- Injetado dinamicamente -->
+      <div class="modal-body">
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+          <div>
+            <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Nome do Projeto</label>
+            <input type="text" id="input-project-name" placeholder="Ex: meu-projeto-web" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; font-family: var(--font-mono); outline: none;">
+          </div>
+          <div>
+            <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Caminho Absoluto no Disco</label>
+            <input type="text" id="input-project-path" placeholder="Ex: C:\Docker\meu-projeto ou G:\Meu Drive\projeto" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; font-family: var(--font-mono); outline: none;">
+          </div>
+          <div>
+            <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Descrição / Tecnologias</label>
+            <input type="text" id="input-project-desc" placeholder="Ex: FastAPI, React 18, PostgreSQL" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; outline: none;">
+          </div>
+          <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+            <button class="btn-inspect" id="btn-cancel-project-modal">Cancelar</button>
+            <button class="btn-project-sync" id="btn-save-project-modal">Adicionar à Frota</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
