@@ -176,5 +176,32 @@
     ],
     "status": "stable",
     "version": "1.0.0"
+  },
+  "interface-design": {
+    "path": "global/interface-design/SKILL.md",
+    "description": "Craft-first interface design for dashboards, admin panels, SaaS apps, tools, settings pages, data interfaces e sistemas de design com foco em hierarquia visual, tokens e refinamento de estados.",
+    "tags": [
+      "ui",
+      "ux",
+      "design-system",
+      "interface",
+      "frontend",
+      "css",
+      "dashboard",
+      "components"
+    ],
+    "compatible_with": [
+      "claude",
+      "gemini",
+      "cursor",
+      "windsurf",
+      "copilot",
+      "antigravity"
+    ],
+    "used_by": [
+      "project-example"
+    ],
+    "status": "stable",
+    "version": "1.0.0"
   }
 }

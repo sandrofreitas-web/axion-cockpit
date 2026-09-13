@@ -12,10 +12,15 @@ skills-library/
 │   └── workflows/
 │       └── validate.yml      # CI: validação automática do catálogo e sintaxe
 ├── global/
+│   ├── interface-design/SKILL.md (+ agents/)
 │   ├── code-review/SKILL.md
 │   ├── writing-pt-br/SKILL.md
 │   ├── managing-python-dependencies/SKILL.md
-│   └── skill-creator/SKILL.md (+ scripts/ e references/)
+│   ├── docker-best-practices/SKILL.md
+│   ├── git-conventional-commits/SKILL.md
+│   ├── fastapi-clean-architecture/SKILL.md
+│   ├── auth-jwt-helper/SKILL.md
+│   └── skill-creator/SKILL.md (+ scripts/, references/ e evals)
 ├── templates/
 │   └── SKILL_TEMPLATE.md
 ├── scripts/
