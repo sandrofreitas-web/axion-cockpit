@@ -12,4 +12,6 @@ Thumbs.db
 *.zip
 .venv/
 venv/
+.obsidian/
+skills-library/
 
