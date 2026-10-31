@@ -1,175 +1,142 @@
-# skills-library — fonte da verdade
+# Axion Cockpit — Console Operacional e Arquitetural de Projetos
 
-Este diretório é o repositório canônico de Skills (`https://github.com/sandrofreitas-web/skills-library.git`),
-independente de qualquer projeto específico. Todos os projetos apontam para
-ele (via git submodule, subtree ou clone compartilhado — veja `scripts/sync_skills.py`).
+O **Axion Cockpit** é um console local de observabilidade e gestão operacional para desenvolvedores e arquitetos que gerenciam múltiplos projetos distribuídos no sistema de arquivos.
 
-## Estrutura
-
-```
-skills-library/
-├── .github/
-│   └── workflows/
-│       └── validate.yml      # CI: validação automática do catálogo e sintaxe
-├── global/
-│   ├── interface-design/SKILL.md (+ agents/)
-│   ├── code-review/SKILL.md
-│   ├── writing-pt-br/SKILL.md
-│   ├── managing-python-dependencies/SKILL.md
-│   ├── docker-best-practices/SKILL.md
-│   ├── git-conventional-commits/SKILL.md
-│   ├── fastapi-clean-architecture/SKILL.md
-│   ├── auth-jwt-helper/SKILL.md
-│   └── skill-creator/SKILL.md (+ scripts/, references/ e evals)
-├── templates/
-│   └── SKILL_TEMPLATE.md
-├── scripts/
-│   └── sync_skills.py
-└── catalog.json
-```
-
-## Critério: Global ou Local?
-
-Toda skill nasce **local**, dentro do projeto onde o problema apareceu.
-Promova para `global/` só quando pelo menos um destes critérios for verdadeiro:
-
-| Sinal | Local | Global |
-|---|---|---|
-| Reuso | usada em 1 projeto | usada (ou claramente útil) em ≥2 projetos |
-| Conteúdo | referencia paths, nomes de tabela, credenciais específicas do projeto | generalizável, sem hardcode |
-| Estabilidade | ainda mudando com frequência | já estabilizou |
-| Natureza | regra de negócio de 1 cliente/produto | prática técnica/metodológica geral |
-
-Regra prática: **comece local, promova quando copiar e colar pela segunda vez.**
-
-## O catálogo (`catalog.json`)
-
-Antes de criar qualquer skill nova — local ou global — busque no
-`catalog.json`. Ele existe justamente para responder "isso já existe em algum
-lugar?" sem precisar vasculhar pastas manualmente. Cada entrada tem:
-
-- `description`: quando usar (mesmo texto do frontmatter do SKILL.md)
-- `tags`: para busca
-- `compatible_with`: quais LLMs/ferramentas ela já foi testada
-- `used_by`: quais projetos consomem essa skill
-- `status`: `draft` | `stable` | `deprecated`
-- `version`: semver simples
-
-Ao pedir para uma LLM criar uma skill nova, a instrução padrão deve ser:
-*"Consulte `catalog.json` antes de escrever do zero. Se existir algo
-parecido, estenda/adapte em vez de duplicar."*
-
-## Ciclo de vida
-
-1. Nasce local → resolve um problema pontual.
-2. Detecta duplicação em outro projeto → candidata a promoção.
-3. Promove: generaliza, documenta, versiona, registra no catálogo.
-4. Projetos passam a **referenciar** a skill global (via `skills.lock.json` +
-   `sync_skills.py`), nunca copiam manualmente.
-5. Skill obsoleta vira `status: deprecated` no catálogo (não é apagada, para
-   manter histórico e não quebrar quem ainda referencia a versão antiga).
-
-## Pastas nativas de cada LLM — o que o sync gera e por quê
-
-O `SKILL.md` é o formato canônico (portável). O script de sync converte esse
-canônico para o formato que cada ferramenta realmente lê em disco. Você nunca
-escreve direto nessas pastas — elas são "build output".
-
-### `.claude/` — Claude Code / Claude.ai (via projeto)
-```
-.claude/
-└── skills/
-    └── <nome-da-skill>/
-        └── SKILL.md      # frontmatter (name, description) + corpo
-```
-Formato nativo — é o mesmo `SKILL.md`, só copiado (ou linkado). Claude Code
-também lê skills pessoais em `~/.claude/skills/` (escopo do usuário, fora de
-qualquer projeto — útil para preferências suas que valem em tudo que você
-roda localmente, independente do projeto).
-
-### `.gemini/` — Gemini CLI
-```
-.gemini/
-├── GEMINI.md              # arquivo raiz, importa os demais
-└── skills/
-    └── <nome-da-skill>.md
-```
-Gemini CLI não tem conceito nativo de "skill" — ele carrega arquivos
-`GEMINI.md` hierarquicamente (`~/.gemini/GEMINI.md` global do usuário →
-`GEMINI.md` na raiz do projeto → subpastas). O sync gera um `GEMINI.md` que
-importa cada skill via `@skills/<nome>.md`, simulando o carregamento modular.
-Diferença importante: Gemini CLI concatena **tudo** no contexto (não tem
-progressive disclosure real) — por isso o sync só inclui aqui as skills
-marcadas como `compatible_with: ["gemini"]` no catálogo, para não estourar
-contexto com skills irrelevantes.
-
-### `.cursor/rules/` — Cursor
-```
-.cursor/
-└── rules/
-    └── <nome-da-skill>.mdc   # frontmatter: description, globs, alwaysApply
-```
-Cursor exige extensão `.mdc` com frontmatter próprio (não é o mesmo YAML do
-Claude). O sync traduz `description` do SKILL.md para o campo `description`
-do `.mdc`, e por padrão gera `alwaysApply: false` (a regra só carrega quando
-relevante, igual ao comportamento de skill do Claude).
-
-### `.windsurf/rules/` — Windsurf
-```
-.windsurf/
-└── rules/
-    └── <nome-da-skill>.md
-```
-Mesmo princípio do Cursor, formato mais simples (markdown puro, sem `.mdc`).
-
-### `.github/copilot-instructions.md` — GitHub Copilot
-```
-.github/
-└── copilot-instructions.md   # arquivo único, concatenado
-```
-Copilot não suporta múltiplos arquivos nem carregamento sob demanda — tudo
-que ele lê é esse arquivo único. O sync concatena as skills compatíveis em
-seções (`## <nome-da-skill>`), então **evite** colocar skills muito longas
-aqui; prefira as mais enxutas ou um resumo com link para o SKILL.md completo.
-
-### `AGENTS.md` (opcional, "ponte" entre ferramentas)
-Várias ferramentas mais novas (incluindo modo `AGENTS.md` do Cursor) já leem
-um `AGENTS.md` simples na raiz como alternativa às pastas específicas. Se seu
-objetivo é máxima portabilidade com o mínimo de manutenção, o sync também
-pode gerar um `AGENTS.md` consolidado — trate-o como fallback genérico, não
-substituto das pastas nativas quando a ferramenta suporta algo mais rico
-(como progressive disclosure do Claude).
-
-## Resumo — tabela de mapeamento
-
-| Ferramenta | Pasta nativa | Escopo usuário (todos os projetos) | Escopo projeto |
-|---|---|---|---|
-| Claude Code | `.claude/skills/<nome>/SKILL.md` | `~/.claude/skills/` | `<projeto>/.claude/skills/` |
-| Gemini CLI | `.gemini/GEMINI.md` (+ imports) | `~/.gemini/GEMINI.md` | `<projeto>/.gemini/GEMINI.md` |
-| Cursor | `.cursor/rules/*.mdc` | Settings → Rules for AI | `<projeto>/.cursor/rules/` |
-| Windsurf | `.windsurf/rules/*.md` | Settings → Global rules | `<projeto>/.windsurf/rules/` |
-| GitHub Copilot | `.github/copilot-instructions.md` | — (não tem escopo global) | `<projeto>/.github/copilot-instructions.md` |
-| Genérico/fallback | `AGENTS.md` | — | raiz do projeto |
+Ele opera sob o **Princípio do Observador Passivo**:
+- **Zero Dependências Externas**: Executa 100% na biblioteca padrão do Python (`http.server` e `socketserver`). Não exige `pip install`, FastAPI ou virtualenvs.
+- **Zero Drift (On-Demand)**: Não duplica dados nem persiste caches de documentação. Ao abrir um projeto, o Axion Cockpit lê os arquivos Markdown diretamente do disco local em tempo real (<1ms).
+- **Renderização Visual Client-Side**: O navegador interpreta o Markdown e renderiza os diagramas de fluxos operacionais e modelos relacionais (ERD) interativamente usando **Mermaid.js**.
+- **Ledger de Melhorias Desacoplado**: Permite registrar ideias, débitos técnicos e notas de revisão por projeto em arquivos Markdown locais, sem poluir a árvore de commits do repositório monitorado até a homologação da versão.
+- **Pronto para Docker**: Disponível como imagem contêinerizada enxuta baseada em `python:3.12-slim` com Docker Compose e suporte nativo a volumes.
+- **Fronteira com o Orca**: O Axion Cockpit é estritamente uma interface de visualização e gestão passiva. A orquestração e execução de comandos por agentes de IA é conduzida externamente pelo **Orca** ou pelo operador via terminal CLI.
 
 ---
 
-### 4. Executar o Dashboard Web (Skills OS — Antigravity Edition)
-Para gerenciar visualmente o catálogo, frota de projetos e transpilar skills em tempo real:
+## Como Executar
+
+### Opção 1: Com Docker Compose (Recomendado)
+
+Inicie o contêiner imediatamente com uma única linha:
+
 ```bash
-uv run python skills-library/ui/app.py
-# ou (dentro da pasta ui):
-python app.py
+docker compose up -d
 ```
-> Acesse no navegador: `http://localhost:4100`
+
+Acesse no navegador: **`http://localhost:4100`**
+
+Para parar o serviço:
+```bash
+docker compose down
+```
+
+> Mais detalhes e mapeamento de diretórios de projetos em [docs/DOCKER.md](file:///C:/Docker/axion-cockpit/docs/DOCKER.md).
 
 ---
 
-## 🖥️ Skills OS — Antigravity IDE Dashboard
+### Opção 2: Python Local (Sem dependências externas)
 
-O dashboard web inclui:
-- **Hub Global com Split Inspector:** Busca dinâmica, inspeção side-by-side com visualização de metadados, código canônico `SKILL.md` e ação de edição instantânea.
-- **Frota de Projetos (Fleet Manager):** Monitoramento de repositórios conectados, validação das pastas compiladas (`.cursor`, `.claude`, `.gemini`, etc.), ativação seletiva de skills no `skills.lock.json` e sincronização em massa ou individual.
-- **Skill Studio & Live Preview:** Editor com visual sistêmico Antigravity IDE (fontes monoespaçadas balanceadas), validação de YAML frontmatter e preview compilado simultâneo para Cursor, Claude, Gemini, Windsurf e Copilot, com botão **`💾 Salvar / Publicar Skill`** integrado ao `catalog.json`.
-- **Console / Terminal Integrado:** Registro de compilação em tempo real e linter de CI integrado.
+Como o servidor utiliza exclusivamente a biblioteca padrão do Python 3, a inicialização é instantânea:
 
+```bash
+# Iniciar o servidor local na porta padrão 4100
+python ui/app.py
 
+# Ou utilizando uv:
+uv run python ui/app.py
+
+# Ou especificando porta e host customizados:
+python ui/app.py --port 8080 --host 0.0.0.0
+```
+
+Abra o navegador em: **`http://127.0.0.1:4100`**
+
+---
+
+## Estrutura do Repositório
+
+```
+axion-cockpit/
+├── data/                                  # Persistência em arquivos planos
+│   ├── projects.json                      # Registro central da frota de projetos locais
+│   └── notes/                             # Notas de melhoria individuais por projeto
+│       └── {project_id}/                  # Arquivos .md com frontmatter
+├── docs/                                  # Documentação técnica organizada
+│   ├── README.md                          # Portal e índice central da documentação
+│   ├── ARCHITECTURE.md                    # Arquitetura, componentes e fluxos Mermaid
+│   ├── API.md                             # Referência completa da REST API
+│   ├── DOCKER.md                          # Guia detalhado de Docker e Compose
+│   ├── DEVELOPMENT.md                     # Guia de desenvolvimento e testes
+│   ├── designs/                           # Documentos formais de design técnico
+│   │   └── local_project_os.md            # Design aprovado pós-auditoria
+│   └── reviews/                           # Trilha histórica de auditorias (EGM Swarm)
+│       └── README.md                      # Sumário das revisões multi-lente
+├── templates/
+│   └── convention/
+│       ├── ARCHITECTURE.template.md       # Template de arquitetura, techspec e diagramas
+│       └── NOTE.template.md               # Template de nota de melhoria com frontmatter
+├── tests/
+│   └── test_server.py                     # Suíte de testes automatizados unitários
+├── ui/
+│   ├── app.py                             # Servidor HTTP/REST nativo (Python Stdlib)
+│   ├── scanner.py                         # Scanner passivo, telemetria Git e extração Mermaid
+│   ├── index.html                         # Interface SPA do dashboard (Axion Cockpit)
+│   └── static/
+│       ├── app.js                         # Controladores frontend e renderizador Mermaid
+│       └── styles.css                     # Design system dark cockpit
+├── Dockerfile                             # Build da imagem Docker (python:3.12-slim)
+├── docker-compose.yml                     # Orquestração do serviço (axion-cockpit)
+└── README.md                              # Este documento
+```
+
+---
+
+## Documentação Completa
+
+Para aprofundar-se em cada aspecto do Axion Cockpit, consulte a documentação em [docs/](file:///C:/Docker/axion-cockpit/docs/README.md):
+
+* 📐 **[docs/ARCHITECTURE.md](file:///C:/Docker/axion-cockpit/docs/ARCHITECTURE.md)**: Detalhamento arquitetural, fluxogramas operacionais e modelo relacional em Mermaid.js.
+* 🔌 **[docs/API.md](file:///C:/Docker/axion-cockpit/docs/API.md)**: Especificação completa de todos os endpoints REST, formatos de requisição e respostas.
+* 🐳 **[docs/DOCKER.md](file:///C:/Docker/axion-cockpit/docs/DOCKER.md)**: Manual de containerização, volumes para projetos do host, variáveis de ambiente e healthcheck.
+* 💻 **[docs/DEVELOPMENT.md](file:///C:/Docker/axion-cockpit/docs/DEVELOPMENT.md)**: Guia do desenvolvedor, execução de testes unitários e padrões de código.
+* 🎯 **[docs/designs/local_project_os.md](file:///C:/Docker/axion-cockpit/docs/designs/local_project_os.md)**: Documento canônico de design técnico aprovado.
+* 📜 **[docs/reviews/README.md](file:///C:/Docker/axion-cockpit/docs/reviews/README.md)**: Trilha histórica de revisões arquiteturais e auditorias do EGM Swarm.
+
+---
+
+## Convenção de Documentação Recomendada
+
+O Axion Cockpit reconhece automaticamente qualquer documentação existente nos projetos monitorados. Para máxima riqueza visual, recomenda-se adicionar um arquivo `ARCHITECTURE.md` (ou `docs/ARCHITECTURE.md`) contendo:
+
+1. **Visão Geral & Techspec**: Especificação de runtimes, bancos, portas e variáveis críticas.
+2. **Workflows Operacionais**: Blocos de código ````mermaid (diagramas `flowchart` ou `sequenceDiagram`).
+3. **Banco de Dados**: Blocos de código ````mermaid (diagramas `erDiagram`).
+
+Templates prontos para cópia estão disponíveis em:
+- [templates/convention/ARCHITECTURE.template.md](file:///C:/Docker/axion-cockpit/templates/convention/ARCHITECTURE.template.md)
+- [templates/convention/NOTE.template.md](file:///C:/Docker/axion-cockpit/templates/convention/NOTE.template.md)
+
+---
+
+## Ciclo de Vida de Melhorias e Atualização de Versão
+
+1. **Registrar Ideia**: No painel do projeto, clique em `+ Nova Anotação` e registre a melhoria com status `idea` ou `planned`.
+2. **Implementar no Código**: O operador ou o agente CLI (Orca) realiza as alterações no código físico do projeto monitorado.
+3. **Inspecionar Telemetria Git**: O Axion Cockpit exibe o branch ativo e a quantidade de arquivos modificados via telemetria Git em tempo real.
+4. **Homologar Versão**: Altere o status da nota para `incorporated` e clique em `🏷️ Atualizar Versão` para registrar o novo número de release canônico no console.
+
+---
+
+## Testes Automatizados
+
+A suíte de testes unitários cobre validação de caminhos, proteção anti-path traversal, extração de diagramas Mermaid e persistência de notas:
+
+```bash
+# Executar localmente com Python:
+python -m unittest discover -s tests -p "test_*.py"
+
+# Ou com uv:
+uv run python -m unittest discover -s tests -p "test_*.py"
+
+# Ou via Docker:
+docker compose run --rm axion-cockpit python -m unittest discover -s tests -p "test_*.py"
+```

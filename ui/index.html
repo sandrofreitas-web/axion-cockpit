@@ -3,9 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Skills OS — Antigravity IDE Multi-LLM Platform</title>
+  <title>Axion Cockpit — Console Operacional e Arquitetural</title>
   <link rel="stylesheet" href="static/styles.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%20100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <!-- Mermaid.js para renderização client-side de diagramas -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <!-- Marked.js para renderização de Markdown no cliente -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@11/marked.min.js"></script>
 </head>
 <body>
 
@@ -14,425 +18,328 @@
     <div class="topbar-left">
       <div class="topbar-brand">
         <span class="brand-glyph">⚡</span>
-        <span class="brand-name">SKILLS<span class="brand-accent">.OS</span></span>
-        <span class="brand-chip">ANTIGRAVITY EDITION</span>
+        <span class="brand-name">AXION<span class="brand-accent">.COCKPIT</span></span>
+        <span class="brand-chip">OPERATIONS COCKPIT</span>
       </div>
       <div class="topbar-divider"></div>
       <div class="topbar-breadcrumb">
-        <span class="crumb-root">WORKSPACE</span>
+        <span class="crumb-root">LOCAL FLEET</span>
         <span class="crumb-sep">/</span>
-        <span class="crumb-current">skills-scaffold</span>
+        <span class="crumb-current" id="active-project-breadcrumb">Nenhum projeto selecionado</span>
       </div>
     </div>
     
     <div class="topbar-right">
       <div class="system-status-pill">
         <span class="pulse-dot green"></span>
-        <span class="status-label">SERVER 127.0.0.1:4100</span>
+        <span class="status-label">127.0.0.1:4100 (ONLINE)</span>
       </div>
       <div class="system-status-pill">
         <span class="pulse-dot blue"></span>
-        <span class="status-label">MULTI-LLM ENGINE READY</span>
+        <span class="status-label">ZERO-DRIFT (ON-DEMAND)</span>
       </div>
-      <button class="topbar-btn" id="btn-toggle-console" title="Abrir/Fechar Terminal">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-        Terminal
+      <button class="btn btn-primary btn-sm" id="btn-open-add-project">
+        + Registrar Projeto
       </button>
     </div>
   </header>
 
   <div class="workbench-layout">
-    <!-- Sidebar Navigation -->
+    <!-- Sidebar Navigation: Frota de Projetos -->
     <aside class="sidebar">
-      <div class="sidebar-section-title">NAVIGATION // WORKSPACES</div>
+      <div class="sidebar-header">
+        <div class="sidebar-section-title">FROTA DE PROJETOS // LOCAL</div>
+        <input type="text" id="project-search-input" class="search-input" placeholder="Filtrar projetos...">
+      </div>
 
-      <nav class="nav-group">
-        <a class="nav-item active" data-tab="hub">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-          <span>Hub Global</span>
-          <span class="nav-badge" id="nav-count-hub">4</span>
-        </a>
-        <a class="nav-item" data-tab="fleet">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
-          <span>Frota de Projetos</span>
-          <span class="nav-badge" id="nav-count-fleet">5</span>
-        </a>
-        <a class="nav-item" data-tab="studio">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-          <span>Skill Studio (Preview)</span>
-        </a>
-        <a class="nav-item" data-tab="metrics">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-          <span>Ciclo de Vida & Métricas</span>
-        </a>
-      </nav>
-
-      <div class="sidebar-telemetry">
-        <div class="telemetry-row">
-          <span>CANONICAL:</span>
-          <strong class="mono-text">SKILL.md</strong>
-        </div>
-        <div class="telemetry-row">
-          <span>COMPILERS:</span>
-          <strong class="mono-text">5 IDEs</strong>
-        </div>
-        <div class="telemetry-row">
-          <span>ENV:</span>
-          <strong class="mono-text">UV / PY 3.13</strong>
-        </div>
+      <div class="project-list" id="project-list-container">
+        <!-- Renderizado dinamicamente via app.js -->
+        <div class="loading-state">Carregando projetos...</div>
       </div>
 
       <div class="sidebar-footer">
-        <button class="sync-all-btn" id="btn-sync-all">
-          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-          <span>Sincronizar Frota</span>
-        </button>
+        <div class="telemetry-row">
+          <span>ARMAZENAMENTO:</span>
+          <strong class="mono-text">Arquivos Planos</strong>
+        </div>
+        <div class="telemetry-row">
+          <span>ORQUESTRADOR:</span>
+          <strong class="mono-text">Orca / CLI</strong>
+        </div>
       </div>
     </aside>
 
-  <!-- Main Wrapper -->
-  <main class="main-wrapper">
-
-    <!-- VIEW 1: HUB GLOBAL -->
-    <section class="view-panel active" id="view-hub">
-      <div class="top-bar">
-        <div class="page-header">
-          <h1>Hub Global de Skills</h1>
-          <p>Catálogo centralizado e versionado de habilidades compartilhadas.</p>
+    <!-- Main Content Area -->
+    <main class="main-wrapper">
+      <!-- Empty State quando nenhum projeto estiver selecionado -->
+      <section class="empty-view active" id="view-empty">
+        <div class="empty-card">
+          <div class="empty-icon">📂</div>
+          <h2>Nenhum Projeto Selecionado</h2>
+          <p>Selecione um projeto na barra lateral ou registre um novo diretório local para inspecionar sua documentação viva, workflows e banco de dados.</p>
+          <button class="btn btn-primary" id="btn-empty-add-project">+ Registrar Primeiro Projeto</button>
         </div>
-        <div style="display: flex; gap: 10px;">
-          <button class="btn-inspect" id="btn-validate-ci">⚡ Validar Linter (CI Check)</button>
-          <button class="btn-inspect" id="btn-wizard-hub">🧙‍♂️ Assistente Guiado</button>
-          <button class="btn-project-sync" id="btn-new-skill-hub">+ Nova Skill</button>
-        </div>
-      </div>
+      </section>
 
-      <div class="search-filter-bar">
-        <div class="search-box">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-          <input type="text" id="hub-search" placeholder="Buscar skills por nome, descrição, tag ou ferramenta...">
-        </div>
-      </div>
-
-      <!-- Hub Split Workbench Layout -->
-      <div class="hub-workbench-split">
-        <div class="hub-main-area">
-          <div class="cards-grid" id="hub-cards-container">
-            <!-- Injetado dinamicamente via app.js -->
+      <!-- Active Project View -->
+      <section class="project-detail-view" id="view-project" style="display: none;">
+        <!-- Project Header Card -->
+        <div class="project-banner">
+          <div class="banner-main">
+            <div class="title-row">
+              <h1 id="proj-title">Nome do Projeto</h1>
+              <span class="version-badge" id="proj-version">v1.0.0</span>
+              <span class="git-badge" id="proj-git-branch"><span class="git-icon">🌿</span> main</span>
+              <span class="git-dirty-badge" id="proj-git-dirty" style="display: none;">● Alterações Pendentes</span>
+            </div>
+            <p class="project-path mono-text" id="proj-path">C:/Docker/meu-projeto</p>
+            <div class="tags-row" id="proj-tags"></div>
+          </div>
+          <div class="banner-actions">
+            <button class="btn btn-secondary btn-sm" id="btn-refresh-project" title="Recarregar Documentação do Disco">
+              ↻ Recarregar
+            </button>
+            <button class="btn btn-outline btn-sm" id="btn-open-version-modal">
+              🏷️ Atualizar Versão
+            </button>
+            <button class="btn btn-danger btn-sm" id="btn-delete-project" title="Desvincular Projeto do OS">
+              Remover
+            </button>
           </div>
         </div>
 
-        <aside class="hub-inspector-pane" id="hub-inspector-pane">
-          <div class="inspector-header">
-            <div class="inspector-title-group">
-              <span class="inspector-badge">INSPECTOR</span>
-              <h3 id="inspector-skill-title">Selecione uma Skill</h3>
-            </div>
-            <div class="inspector-header-actions">
-              <button class="btn-inspect-mini" id="btn-inspector-edit" style="display: none;" title="Editar no Studio">✏️ Editar no Studio</button>
-              <button class="btn-inspect-mini" id="btn-close-inspector" title="Fechar Split">✕</button>
-            </div>
-          </div>
-          <div class="inspector-body" id="inspector-skill-body">
-            <div class="inspector-empty-state">
-              <div style="font-size: 24px; margin-bottom: 8px;">🔍</div>
-              <p>Clique em <strong>Inspecionar ↗</strong> em qualquer card de skill para visualizar os detalhes, metadados e o código canônico aqui no split lateral.</p>
-            </div>
-          </div>
-        </aside>
-      </div>
-    </section>
+        <!-- Project Tabs -->
+        <nav class="project-tabs">
+          <button class="tab-btn active" data-tab="tab-techspec">
+            <span class="tab-icon">📄</span> Visão Geral & Techspec
+          </button>
+          <button class="tab-btn" data-tab="tab-workflows">
+            <span class="tab-icon">🔄</span> Workflows Operacionais
+            <span class="badge-count" id="count-workflows">0</span>
+          </button>
+          <button class="tab-btn" data-tab="tab-database">
+            <span class="tab-icon">🗄️</span> Banco de Dados & ERD
+            <span class="badge-count" id="count-database">0</span>
+          </button>
+          <button class="tab-btn" data-tab="tab-notes">
+            <span class="tab-icon">📝</span> Ledger de Melhorias
+            <span class="badge-count" id="count-notes">0</span>
+          </button>
+        </nav>
 
-    <!-- VIEW 2: FROTA DE PROJETOS -->
-    <section class="view-panel" id="view-fleet">
-      <div class="top-bar">
-        <div class="page-header">
-          <h1>Frota de Projetos (Fleet Manager)</h1>
-          <p>Gerenciamento de dependências, skills locais e compilação multi-LLM por repositório.</p>
-        </div>
-        <div style="display: flex; gap: 10px;">
-          <button class="btn-inspect" id="btn-toggle-all-fleet">📐 Compactar / Expandir Todos</button>
-          <button class="btn-project-sync" id="btn-add-project-modal">+ Adicionar Projeto</button>
-        </div>
-      </div>
-
-      <div class="search-filter-bar">
-        <div class="search-box">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-          <input type="text" id="fleet-search" placeholder="Filtrar projetos por nome, caminho no disco ou skill...">
-        </div>
-      </div>
-
-      <!-- Fleet Split Workbench Layout -->
-      <div class="fleet-workbench-split">
-        <div class="fleet-main-area">
-          <div id="fleet-cards-container">
-            <!-- Injetado dinamicamente via app.js -->
-          </div>
-        </div>
-
-        <aside class="fleet-inspector-pane" id="fleet-inspector-pane">
-          <div class="inspector-header">
-            <div class="inspector-title-group">
-              <span class="inspector-badge">PROJECT INSPECTOR</span>
-              <h3 id="inspector-project-title">Detalhes do Projeto</h3>
-            </div>
-            <div class="inspector-header-actions">
-              <button class="btn-inspect-mini" id="btn-inspector-project-sync" style="display: none;" title="Sincronizar Projeto">⚡ 1-Click Sync</button>
-              <button class="btn-inspect-mini" id="btn-close-fleet-inspector" title="Fechar Split">✕</button>
+        <!-- Tab Contents -->
+        <div class="tab-panes">
+          <!-- TAB 1: TECHSPEC -->
+          <div class="tab-pane active" id="tab-techspec">
+            <div class="techspec-layout">
+              <div class="techspec-content markdown-body" id="techspec-markdown">
+                <p class="muted-text">Carregando documentação do projeto...</p>
+              </div>
+              <aside class="techspec-sidebar">
+                <div class="meta-card">
+                  <h3>Indicadores de Ambiente</h3>
+                  <ul class="indicators-list" id="env-indicators-list"></ul>
+                </div>
+                <div class="meta-card">
+                  <h3>Arquivos Encontrados</h3>
+                  <ul class="docs-found-list" id="docs-found-list"></ul>
+                </div>
+                <div class="meta-card">
+                  <h3>Git Telemetry</h3>
+                  <div class="telemetry-info" id="git-telemetry-info"></div>
+                </div>
+              </aside>
             </div>
           </div>
-          <div class="inspector-body" id="inspector-project-body">
-            <div class="inspector-empty-state">
-              <div style="font-size: 24px; margin-bottom: 8px;">🏢</div>
-              <p>Clique em <strong>Inspecionar ↗</strong> em qualquer projeto ou skill local para visualizar telemetria detalhada, status das IDEs e código canônico aqui no split lateral.</p>
+
+          <!-- TAB 2: WORKFLOWS -->
+          <div class="tab-pane" id="tab-workflows">
+            <div class="mermaid-section-header">
+              <h2>Diagramas de Fluxo Operacional (Mermaid)</h2>
+              <div class="view-toggle">
+                <button class="toggle-btn active" id="btn-wf-view-diagram">Visual</button>
+                <button class="toggle-btn" id="btn-wf-view-raw">Código Bruto</button>
+              </div>
+            </div>
+            <div class="mermaid-container" id="workflows-diagram-container">
+              <p class="muted-text">Nenhum diagrama de workflow encontrado neste projeto.</p>
             </div>
           </div>
-        </aside>
-      </div>
-    </section>
 
-    <!-- VIEW 3: SKILL STUDIO & LIVE PREVIEW -->
-    <section class="view-panel" id="view-studio">
-      <div class="top-bar">
-        <div class="page-header">
-          <h1 id="studio-header-title">Skill Studio & Live Preview Multi-IDE</h1>
-          <p>Escreva no formato canônico SKILL.md e salve diretamente no catálogo com transpilação instantânea.</p>
-        </div>
-        <div style="display: flex; gap: 10px;">
-          <button class="btn-inspect" id="btn-studio-template">📄 Template Canônico</button>
-          <button class="btn-inspect" id="btn-wizard-studio">🧙‍♂️ Assistente Guiado</button>
-          <button class="btn-project-sync" id="btn-studio-save">💾 Salvar / Publicar Skill</button>
-        </div>
-      </div>
-
-      <div class="studio-grid">
-        <!-- Editor Column -->
-        <div class="editor-box">
-          <div class="box-header">
-            <h4>📄 SKILL.md (Formato Canônico / Fonte da Verdade)</h4>
-            <span class="badge-version">YAML Frontmatter + Markdown</span>
-          </div>
-          <textarea id="studio-editor" spellcheck="false"></textarea>
-        </div>
-
-        <!-- Preview Column -->
-        <div class="preview-box">
-          <div class="box-header">
-            <h4>⚡ Preview Compilado</h4>
-            <div class="preview-tabs">
-              <button class="preview-tab active" data-target="cursor">Cursor (.mdc)</button>
-              <button class="preview-tab" data-target="antigravity">Antigravity</button>
-              <button class="preview-tab" data-target="claude">Claude Code</button>
-              <button class="preview-tab" data-target="gemini">Gemini</button>
-              <button class="preview-tab" data-target="windsurf">Windsurf</button>
-              <button class="preview-tab" data-target="copilot">Copilot</button>
+          <!-- TAB 3: BANCO DE DADOS -->
+          <div class="tab-pane" id="tab-database">
+            <div class="mermaid-section-header">
+              <h2>Modelo Entidade-Relacionamento (ERD)</h2>
+              <div class="view-toggle">
+                <button class="toggle-btn active" id="btn-db-view-diagram">Visual</button>
+                <button class="toggle-btn" id="btn-db-view-raw">Código Bruto</button>
+              </div>
+            </div>
+            <div class="mermaid-container" id="database-diagram-container">
+              <p class="muted-text">Nenhum diagrama de banco de dados (erDiagram) encontrado neste projeto.</p>
             </div>
           </div>
-          <pre id="studio-preview-code"></pre>
-        </div>
-      </div>
-    </section>
 
-    <!-- VIEW 4: CICLO DE VIDA & MÉTRICAS -->
-    <section class="view-panel" id="view-metrics">
-      <div class="top-bar">
-        <div class="page-header">
-          <h1>Governança, Ciclo de Vida & Métricas</h1>
-          <p>Métricas de adoção, alertas de duplicação e oportunidades de promoção de skills locais.</p>
-        </div>
-      </div>
-
-      <div class="fleet-card">
-        <h3 style="margin-bottom: 12px;">💡 Oportunidades de Promoção & Inteligência de Frota</h3>
-        <p style="color: var(--text-muted); font-size: 13px; line-height: 1.6; margin-bottom: 16px;">
-          O Skills OS analisa periodicamente os arquivos de skills locais e documentações de todos os projetos conectados para identificar padrões repetidos e sugerir promoções para o catálogo global.
-        </p>
-        <div id="metrics-insights-container">
-          <!-- Injetado via app.js -->
-        </div>
-      </div>
-    </section>
-
-  </main>
-  </div>
-
-  <!-- Output Console Drawer -->
-  <div class="output-console" id="output-console">
-    <div class="console-header">
-      <div class="console-title">
-        <span class="status-indicator"></span>
-        Terminal / Log de Compilação
-      </div>
-      <button class="btn-inspect" id="btn-close-console" style="padding: 2px 8px; font-size: 11px;">Fechar ✕</button>
-    </div>
-    <pre class="console-body" id="console-output-text"></pre>
-  </div>
-
-  <!-- Modal for Add Project -->
-  <div class="modal-overlay" id="project-modal">
-    <div class="modal-dialog" style="max-width: 520px;">
-      <div class="modal-header">
-        <h3>+ Adicionar Projeto à Frota</h3>
-        <button class="btn-inspect" id="btn-close-project-modal">✕</button>
-      </div>
-      <div class="modal-body">
-        <div style="display: flex; flex-direction: column; gap: 14px;">
-          <div>
-            <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Nome do Projeto</label>
-            <input type="text" id="input-project-name" placeholder="Ex: meu-projeto-web" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; font-family: var(--font-mono); outline: none;">
-          </div>
-          <div>
-            <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Caminho Absoluto no Disco</label>
-            <input type="text" id="input-project-path" placeholder="Ex: C:\Docker\meu-projeto ou G:\Meu Drive\projeto" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; font-family: var(--font-mono); outline: none;">
-          </div>
-          <div>
-            <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Descrição / Tecnologias</label>
-            <input type="text" id="input-project-desc" placeholder="Ex: FastAPI, React 18, PostgreSQL" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; outline: none;">
-          </div>
-          <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
-            <button class="btn-inspect" id="btn-cancel-project-modal">Cancelar</button>
-            <button class="btn-project-sync" id="btn-save-project-modal">Adicionar à Frota</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal for Skill Wizard -->
-  <div class="modal-overlay" id="skill-wizard-modal">
-    <div class="modal-dialog" style="max-width: 680px;">
-      <div class="modal-header">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 18px;">🧙‍♂️</span>
-          <h3 style="font-size: 15px; font-weight: 700;">Assistente Guiado de Criação de Skills</h3>
-        </div>
-        <button class="btn-inspect" id="btn-close-wizard-modal">✕</button>
-      </div>
-
-      <!-- Stepper Progress Bar -->
-      <div class="wizard-stepper" style="display: flex; border-bottom: 1px solid var(--border-subtle); background: var(--bg-workbench); padding: 12px 20px; gap: 8px;">
-        <div class="wizard-step-item active" id="wizard-step-indicator-1" style="flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--accent-cyan);">
-          <span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(56, 189, 248, 0.2); border: 1px solid var(--accent-cyan); display: flex; align-items: center; justify-content: center; font-size: 11px;">1</span>
-          <span>Identificação</span>
-        </div>
-        <div class="wizard-step-item" id="wizard-step-indicator-2" style="flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--text-dim);">
-          <span style="width: 22px; height: 22px; border-radius: 50%; background: var(--bg-surface); border: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: center; font-size: 11px;">2</span>
-          <span>Gatilhos & IDEs</span>
-        </div>
-        <div class="wizard-step-item" id="wizard-step-indicator-3" style="flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--text-dim);">
-          <span style="width: 22px; height: 22px; border-radius: 50%; background: var(--bg-surface); border: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: center; font-size: 11px;">3</span>
-          <span>Regras & Código</span>
-        </div>
-      </div>
-
-      <div class="modal-body" style="padding: 20px;">
-        <!-- STEP 1: IDENTIFICAÇÃO -->
-        <div class="wizard-step-panel active" id="wizard-panel-1">
-          <div style="display: flex; flex-direction: column; gap: 14px;">
-            <div>
-              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Nome da Skill (Kebab-Case)</label>
-              <input type="text" id="wiz-skill-name" placeholder="Ex: fastapi-error-handling ou react-performance-patterns" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; font-family: var(--font-mono); outline: none;">
-              <span style="font-size: 11px; color: var(--text-dim); margin-top: 4px; display: block;">Use letras minúsculas e hífens. Sem espaços.</span>
-            </div>
-
-            <div>
-              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Descrição de Disparo (Quando a IA deve acionar?)</label>
-              <textarea id="wiz-skill-desc" rows="3" placeholder="Ex: Garante tratamento centralizado de exceções e respostas padronizadas em APIs FastAPI. Use ao criar endpoints, routers ou lidar com erros HTTP." style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; line-height: 1.5; outline: none; resize: vertical;"></textarea>
-            </div>
-
-            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+          <!-- TAB 4: NOTAS DE MELHORIA -->
+          <div class="tab-pane" id="tab-notes">
+            <div class="notes-header">
               <div>
-                <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Tags (separadas por vírgula)</label>
-                <input type="text" id="wiz-skill-tags" placeholder="Ex: fastapi, error, backend, pydantic" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; outline: none;">
+                <h2>Ledger de Melhorias e Revisões</h2>
+                <p class="subtitle">Anotações e ideias isoladas fora do Git do projeto até a homologação de versão.</p>
               </div>
-              <div>
-                <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Versão SemVer</label>
-                <input type="text" id="wiz-skill-version" value="1.0.0" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; font-family: var(--font-mono); outline: none;">
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- STEP 2: GATILHOS & COMPATIBILIDADE -->
-        <div class="wizard-step-panel" id="wizard-panel-2" style="display: none;">
-          <div style="display: flex; flex-direction: column; gap: 16px;">
-            <div>
-              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;">Gatilhos por Arquivo (Globs)</label>
-              <input type="text" id="wiz-skill-globs" placeholder="Ex: *.py, src/**/*.py, routers/*.py" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 9px 12px; color: var(--text-main); font-size: 13px; font-family: var(--font-mono); outline: none;">
-              <span style="font-size: 11px; color: var(--text-dim); margin-top: 4px; display: block;">Extensões ou caminhos que ativam essa regra no Cursor / IDEs.</span>
+              <button class="btn btn-primary btn-sm" id="btn-open-add-note">+ Nova Anotação</button>
             </div>
 
-            <div>
-              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 8px;">Ferramentas de IA Compatíveis (Multi-LLM)</label>
-              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-main); background: var(--bg-editor); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;">
-                  <input type="checkbox" id="wiz-compat-antigravity" checked>
-                  <span>🤖 Antigravity</span>
-                </label>
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-main); background: var(--bg-editor); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;">
-                  <input type="checkbox" id="wiz-compat-claude" checked>
-                  <span>🧠 Claude Code</span>
-                </label>
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-main); background: var(--bg-editor); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;">
-                  <input type="checkbox" id="wiz-compat-cursor" checked>
-                  <span>⚡ Cursor (.mdc)</span>
-                </label>
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-main); background: var(--bg-editor); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;">
-                  <input type="checkbox" id="wiz-compat-gemini" checked>
-                  <span>✨ Gemini CLI</span>
-                </label>
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-main); background: var(--bg-editor); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;">
-                  <input type="checkbox" id="wiz-compat-windsurf" checked>
-                  <span>🏄 Windsurf</span>
-                </label>
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-main); background: var(--bg-editor); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border-subtle); cursor: pointer;">
-                  <input type="checkbox" id="wiz-compat-copilot" checked>
-                  <span>🐙 Copilot</span>
-                </label>
+            <!-- Kanban Board de Notas -->
+            <div class="kanban-board">
+              <div class="kanban-col" data-status="idea">
+                <div class="col-header">
+                  <span class="status-indicator yellow"></span>
+                  <h3>Ideias</h3>
+                  <span class="count-pill" id="count-col-idea">0</span>
+                </div>
+                <div class="col-cards" id="cards-idea"></div>
+              </div>
+
+              <div class="kanban-col" data-status="planned">
+                <div class="col-header">
+                  <span class="status-indicator blue"></span>
+                  <h3>Planejadas</h3>
+                  <span class="count-pill" id="count-col-planned">0</span>
+                </div>
+                <div class="col-cards" id="cards-planned"></div>
+              </div>
+
+              <div class="kanban-col" data-status="in_review">
+                <div class="col-header">
+                  <span class="status-indicator purple"></span>
+                  <h3>Em Revisão</h3>
+                  <span class="count-pill" id="count-col-in_review">0</span>
+                </div>
+                <div class="col-cards" id="cards-in_review"></div>
+              </div>
+
+              <div class="kanban-col" data-status="incorporated">
+                <div class="col-header">
+                  <span class="status-indicator green"></span>
+                  <h3>Incorporadas</h3>
+                  <span class="count-pill" id="count-col-incorporated">0</span>
+                </div>
+                <div class="col-cards" id="cards-incorporated"></div>
               </div>
             </div>
           </div>
         </div>
+      </section>
+    </main>
+  </div>
 
-        <!-- STEP 3: REGRAS & CÓDIGO -->
-        <div class="wizard-step-panel" id="wizard-panel-3" style="display: none;">
-          <div style="display: flex; flex-direction: column; gap: 14px;">
-            <div>
-              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px;">1. Quando Usar (Cenários & Comandos)</label>
-              <textarea id="wiz-content-when" rows="2" placeholder="- Ao criar ou modificar endpoints da API&#10;- Ao lidar com exceções de banco de dados ou autenticação" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 8px 12px; color: var(--text-main); font-size: 12.5px; outline: none; resize: vertical;"></textarea>
-            </div>
-
-            <div>
-              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px;">2. Como Fazer (Diretrizes Técnicas / Passo a Passo)</label>
-              <textarea id="wiz-content-how" rows="3" placeholder="1. Sempre herde de DomainException para exceções de negócio.&#10;2. Utilize handlers centralizados no main.py com JSONResponse padronizado.&#10;3. Nunca exponha stacktraces internos para o cliente em produção." style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 8px 12px; color: var(--text-main); font-size: 12.5px; outline: none; resize: vertical;"></textarea>
-            </div>
-
-            <div>
-              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--accent-rose); text-transform: uppercase; margin-bottom: 4px;">3. O que NUNCA Fazer (Antipatterns / Proibições)</label>
-              <textarea id="wiz-content-never" rows="2" placeholder="- ❌ Nunca use blocos try/except Exception genéricos engolindo o erro.&#10;- ❌ Nunca retorne códigos HTTP 200 para respostas de erro." style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 8px 12px; color: var(--text-main); font-size: 12.5px; outline: none; resize: vertical;"></textarea>
-            </div>
-
-            <div>
-              <label style="display: block; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px;">4. Exemplo de Código Canônico (Opcional)</label>
-              <textarea id="wiz-content-code" rows="3" placeholder="# Exemplo de implementação recomendada&#10;class DomainException(Exception):&#10;    def __init__(self, message: str, status_code: int = 400):&#10;        self.message = message&#10;        self.status_code = status_code" style="width: 100%; background: var(--bg-editor); border: 1px solid var(--border-regular); border-radius: 4px; padding: 8px 12px; color: var(--text-main); font-size: 12px; font-family: var(--font-mono); outline: none; resize: vertical;"></textarea>
-            </div>
-          </div>
-        </div>
-
-        <!-- Wizard Navigation Controls -->
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 18px; border-top: 1px solid var(--border-subtle); padding-top: 14px;">
-          <button class="btn-inspect" id="btn-wiz-prev" style="visibility: hidden;">← Anterior</button>
-          <div style="display: flex; gap: 10px;">
-            <button class="btn-inspect" id="btn-wiz-cancel">Cancelar</button>
-            <button class="btn-project-sync" id="btn-wiz-next">Próximo →</button>
-            <button class="btn-project-sync" id="btn-wiz-finish" style="display: none;">✨ Gerar SKILL.md no Studio</button>
-          </div>
-        </div>
+  <!-- MODAL: Registrar Novo Projeto -->
+  <div class="modal-overlay" id="modal-add-project" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Registrar Projeto no OS</h2>
+        <button class="close-btn" data-close-modal="modal-add-project">&times;</button>
       </div>
+      <form id="form-add-project">
+        <div class="form-group">
+          <label for="proj-input-path">Caminho Absoluto em Disco (*)</label>
+          <input type="text" id="proj-input-path" class="form-input" required placeholder="Ex: C:/Docker/meu-projeto ou /mnt/c/Docker/meu-projeto">
+          <span class="form-help">O OS validará se a pasta existe e lerá sua documentação sob demanda.</span>
+        </div>
+        <div class="form-group">
+          <label for="proj-input-name">Nome Amigável do Projeto</label>
+          <input type="text" id="proj-input-name" class="form-input" placeholder="Opcional (se vazio, usa o nome da pasta)">
+        </div>
+        <div class="form-group">
+          <label for="proj-input-version">Versão Inicial</label>
+          <input type="text" id="proj-input-version" class="form-input" value="v1.0.0">
+        </div>
+        <div class="form-group">
+          <label for="proj-input-tags">Tags (separadas por vírgula)</label>
+          <input type="text" id="proj-input-tags" class="form-input" placeholder="backend, python, docker">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-add-project">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Registrar Projeto</button>
+        </div>
+      </form>
     </div>
   </div>
 
+  <!-- MODAL: Criar / Editar Nota de Melhoria -->
+  <div class="modal-overlay" id="modal-note" style="display: none;">
+    <div class="modal-card modal-large">
+      <div class="modal-header">
+        <h2 id="modal-note-title">Nova Nota de Melhoria</h2>
+        <button class="close-btn" data-close-modal="modal-note">&times;</button>
+      </div>
+      <form id="form-note">
+        <input type="hidden" id="note-input-id">
+        <div class="form-row">
+          <div class="form-group flex-2">
+            <label for="note-input-title">Título da Melhoria (*)</label>
+            <input type="text" id="note-input-title" class="form-input" required placeholder="Ex: Migrar pooling para Redis Cluster">
+          </div>
+          <div class="form-group flex-1">
+            <label for="note-input-status">Status</label>
+            <select id="note-input-status" class="form-input">
+              <option value="idea">Ideia</option>
+              <option value="planned">Planejada</option>
+              <option value="in_review">Em Revisão</option>
+              <option value="incorporated">Incorporada</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label for="note-input-version-target">Versão Alvo</label>
+            <input type="text" id="note-input-version-target" class="form-input" placeholder="Ex: v1.1.0">
+          </div>
+          <div class="form-group flex-2">
+            <label for="note-input-target-files">Arquivos Alvo (separados por vírgula)</label>
+            <input type="text" id="note-input-target-files" class="form-input" placeholder="app/db.py, config.py">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="note-input-content">Descrição e Detalhamento (Markdown)</label>
+          <textarea id="note-input-content" class="form-textarea" rows="6" placeholder="Explique a motivação e os critérios de aceite..."></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-danger btn-sm" id="btn-delete-note" style="display: none; margin-right: auto;">Excluir Nota</button>
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-note">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-note">Salvar Nota</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Atualizar Versão do Projeto -->
+  <div class="modal-overlay" id="modal-version" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Homologar Nova Versão</h2>
+        <button class="close-btn" data-close-modal="modal-version">&times;</button>
+      </div>
+      <form id="form-version">
+        <div class="form-group">
+          <label for="version-input-new">Novo Identificador de Versão (*)</label>
+          <input type="text" id="version-input-new" class="form-input" required placeholder="Ex: v1.1.0">
+          <span class="form-help">Atualizará a versão canônica do projeto no registro do OS.</span>
+        </div>
+        <div class="version-preview-notes" id="version-incorporated-notes-preview">
+          <h4>Notas Prontas / Incorporadas:</h4>
+          <ul id="version-notes-list"></ul>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-version">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Homologar Versão</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Script Principal -->
   <script src="static/app.js"></script>
 </body>
 </html>

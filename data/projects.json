@@ -1,0 +1,14 @@
+[
+  {
+    "id": "axion-cockpit--self",
+    "name": "Axion Cockpit (Self)",
+    "path": "/mnt/c/Docker/axion-cockpit",
+    "current_version": "v1.0.0",
+    "created_at": "2026-10-30T22:24:38.552235+00:00",
+    "tags": [
+      "python",
+      "cockpit",
+      "axion"
+    ]
+  }
+]

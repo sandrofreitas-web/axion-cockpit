@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Skills OS — Local Management Dashboard Server.
-Backend REST API leve para gerenciamento visual, frota de projetos e live preview multi-LLM.
+Axion Cockpit — Local Management Dashboard Server.
+Backend REST API leve para visualização arquitetural e gestão operacional da frota de projetos.
+Executa 100% na biblioteca padrão do Python (sem dependências externas de pip).
 """
 
 import argparse
@@ -10,13 +11,12 @@ import json
 import mimetypes
 import os
 import re
-import shutil
 import socketserver
-import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
-from urllib.parse import parse_qs, urlparse
+from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qs, unquote, urlparse
 
 # Garante saída UTF-8 no Windows
 if hasattr(sys.stdout, "reconfigure"):
@@ -28,515 +28,470 @@ if hasattr(sys.stdout, "reconfigure"):
 
 UI_ROOT = Path(__file__).resolve().parent
 LIBRARY_ROOT = UI_ROOT.parent
-SCRIPTS_DIR = LIBRARY_ROOT / "scripts"
-FLEET_FILE = UI_ROOT / "fleet.json"
+DATA_DIR = LIBRARY_ROOT / "data"
+PROJECTS_FILE = DATA_DIR / "projects.json"
+NOTES_BASE_DIR = DATA_DIR / "notes"
 
-# Adiciona scripts ao sys.path para reutilizar funções do sync_skills
-sys.path.insert(0, str(SCRIPTS_DIR))
-try:
-    import sync_skills
-except ImportError:
-    sync_skills = None
+# Garante existência dos diretórios de dados
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+NOTES_BASE_DIR.mkdir(parents=True, exist_ok=True)
+
+if not PROJECTS_FILE.exists():
+    PROJECTS_FILE.write_text("[]", encoding="utf-8")
+
+# Adiciona UI_ROOT ao sys.path para importar scanner
+sys.path.insert(0, str(UI_ROOT))
+import scanner
 
 
-def get_fleet() -> List[Dict[str, Any]]:
-    if not FLEET_FILE.exists():
+# ==============================================================================
+# Funções Utilitárias de Armazenamento e Notas
+# ==============================================================================
+
+def load_projects() -> List[Dict[str, Any]]:
+    if not PROJECTS_FILE.exists():
         return []
     try:
-        return json.loads(FLEET_FILE.read_text(encoding="utf-8"))
+        return json.loads(PROJECTS_FILE.read_text(encoding="utf-8"))
     except Exception:
         return []
 
 
-def save_fleet(fleet: List[Dict[str, Any]]) -> None:
-    FLEET_FILE.write_text(json.dumps(fleet, indent=2, ensure_ascii=False), encoding="utf-8")
+def save_projects(projects: List[Dict[str, Any]]) -> None:
+    PROJECTS_FILE.write_text(json.dumps(projects, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def get_catalog_data() -> Dict[str, Any]:
-    cat_path = LIBRARY_ROOT / "catalog.json"
-    if not cat_path.exists():
-        return {}
-    try:
-        catalog = json.loads(cat_path.read_text(encoding="utf-8"))
-        # Enriquece com o conteúdo do SKILL.md de cada entrada
-        for name, meta in catalog.items():
-            skill_md_path = LIBRARY_ROOT / meta.get("path", "")
-            if skill_md_path.exists():
-                try:
-                    if sync_skills:
-                        parsed = sync_skills.parse_skill_md(skill_md_path)
-                        meta["frontmatter"] = parsed["frontmatter"]
-                        meta["body"] = parsed["body"]
-                        meta["raw"] = parsed["raw"]
-                except Exception as e:
-                    meta["error"] = str(e)
-        return catalog
-    except Exception as e:
-        return {"error": str(e)}
+def get_project_by_id(project_id: str) -> Optional[Dict[str, Any]]:
+    for p in load_projects():
+        if p.get("id") == project_id:
+            return p
+    return None
 
 
-def inspect_project(proj: Dict[str, Any]) -> Dict[str, Any]:
-    p_path = Path(proj["path"]).resolve()
-    result = {
-        "name": proj.get("name", p_path.name),
-        "path": str(p_path),
-        "description": proj.get("description", ""),
-        "exists": p_path.exists() and p_path.is_dir(),
-        "has_lock": False,
-        "locked_skills": {},
-        "local_skills": [],
-        "generated_status": {},
+def parse_markdown_note(file_path: Path) -> Dict[str, Any]:
+    """Lê um arquivo de nota Markdown e extrai frontmatter YAML simples."""
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    meta: Dict[str, Any] = {
+        "id": file_path.stem,
+        "title": file_path.stem,
+        "status": "idea",
+        "created_at": datetime.fromtimestamp(os.path.getmtime(str(file_path)), timezone.utc).isoformat(),
+        "target_files": [],
+        "version_target": "",
     }
+    body = content
 
-    if not result["exists"]:
-        return result
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            fm_text = parts[1]
+            body = parts[2].strip()
+            # Parser leve de chave-valor para evitar dependência de PyYAML
+            current_list_key = None
+            for line in fm_text.splitlines():
+                line_str = line.strip()
+                if not line_str or line_str.startswith("#"):
+                    continue
+                if line_str.startswith("- ") and current_list_key:
+                    val = line_str[2:].strip().strip("\"'")
+                    meta[current_list_key].append(val)
+                elif ":" in line_str:
+                    k, v = line_str.split(":", 1)
+                    k = k.strip()
+                    v = v.split("#")[0].strip().strip("\"'")
+                    if not v:
+                        current_list_key = k
+                        meta[k] = []
+                    else:
+                        current_list_key = None
+                        meta[k] = v
 
-    # 1. Lock file
-    lock_file = p_path / "skills.lock.json"
-    if lock_file.exists():
-        result["has_lock"] = True
-        try:
-            lock_data = json.loads(lock_file.read_text(encoding="utf-8"))
-            result["locked_skills"] = lock_data.get("skills", {})
-            result["library_path"] = lock_data.get("library_path", "")
-        except Exception as e:
-            result["lock_error"] = str(e)
-
-    # 2. Local skills
-    local_dir = p_path / "skills" / "local"
-    if local_dir.exists() and local_dir.is_dir():
-        for sdir in sorted(local_dir.iterdir()):
-            if sdir.is_dir():
-                sm = sdir / "SKILL.md"
-                if sm.exists():
-                    try:
-                        if sync_skills:
-                            parsed = sync_skills.parse_skill_md(sm)
-                            result["local_skills"].append({
-                                "name": sdir.name,
-                                "frontmatter": parsed["frontmatter"],
-                                "body": parsed["body"],
-                                "path": str(sm),
-                            })
-                        else:
-                            result["local_skills"].append({"name": sdir.name, "path": str(sm)})
-                    except Exception as e:
-                        result["local_skills"].append({"name": sdir.name, "error": str(e), "path": str(sm)})
-
-    # 3. Status de saídas geradas
-    result["generated_status"] = {
-        "antigravity": (p_path / ".agents" / "skills").exists(),
-        "claude": (p_path / ".claude" / "skills").exists(),
-        "cursor": (p_path / ".cursor" / "rules").exists(),
-        "gemini": (p_path / ".gemini" / "GEMINI.md").exists(),
-        "windsurf": (p_path / ".windsurf" / "rules").exists(),
-        "copilot": (p_path / ".github" / "copilot-instructions.md").exists(),
-    }
-
-    return result
+    meta["content"] = body
+    return meta
 
 
-class SkillsOSRequestHandler(http.server.SimpleHTTPRequestHandler):
+def write_markdown_note(file_path: Path, meta: Dict[str, Any], body: str) -> None:
+    lines = ["---"]
+    lines.append(f"id: {meta.get('id', file_path.stem)}")
+    lines.append(f"title: \"{meta.get('title', file_path.stem)}\"")
+    lines.append(f"status: {meta.get('status', 'idea')}")
+    lines.append(f"created_at: {meta.get('created_at', datetime.now(timezone.utc).isoformat())}")
+    lines.append(f"version_target: \"{meta.get('version_target', '')}\"")
+    target_files = meta.get("target_files", [])
+    if isinstance(target_files, list) and target_files:
+        lines.append("target_files:")
+        for tf in target_files:
+            lines.append(f"  - \"{tf}\"")
+    else:
+        lines.append("target_files: []")
+    lines.append("---")
+    lines.append("")
+    lines.append(body.strip())
+    lines.append("")
+    file_path.write_text("\n".join(lines), encoding="utf-8")
+
+
+# ==============================================================================
+# Handler de Requisições HTTP REST
+# ==============================================================================
+
+class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(UI_ROOT), **kwargs)
 
-    def do_GET(self):
-        parsed = urlparse(self.path)
+    def log_message(self, format, *args):
+        # Log simplificado
+        sys.stderr.write(f"[{datetime.now().strftime('%H:%M:%S')}] {self.command} {self.path}\n")
 
-        if parsed.path == "/api/catalog":
-            self.send_json(get_catalog_data())
-            return
-
-        if parsed.path == "/api/fleet":
-            fleet_raw = get_fleet()
-            fleet_data = [inspect_project(p) for p in fleet_raw]
-            self.send_json(fleet_data)
-            return
-
-        if parsed.path == "/api/status":
-            self.send_json({
-                "status": "online",
-                "library_root": str(LIBRARY_ROOT),
-                "catalog_skills_count": len(get_catalog_data()),
-                "fleet_count": len(get_fleet()),
-            })
-            return
-
-        # Default static file serving
-        return super().do_GET()
-
-    def do_POST(self):
-        parsed = urlparse(self.path)
-        content_length = int(self.headers.get("Content-Length", 0))
-        post_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
-
-        try:
-            payload = json.loads(post_data.decode("utf-8")) if post_data else {}
-        except Exception:
-            payload = {}
-
-        if parsed.path == "/api/fleet/add":
-            path_str = payload.get("path", "").strip()
-            name = payload.get("name", "").strip()
-            desc = payload.get("description", "").strip()
-
-            if not path_str:
-                self.send_json({"error": "Caminho do projeto é obrigatório"}, status=400)
-                return
-
-            p = Path(path_str).resolve()
-            if not p.exists():
-                self.send_json({"error": f"O diretório não existe: {p}"}, status=400)
-                return
-
-            fleet = get_fleet()
-            # Evita duplicidade por caminho
-            fleet = [item for item in fleet if Path(item["path"]).resolve() != p]
-            fleet.append({
-                "name": name or p.name,
-                "path": str(p),
-                "description": desc,
-            })
-            save_fleet(fleet)
-            self.send_json({"success": True, "fleet": [inspect_project(item) for item in fleet]})
-            return
-
-        if parsed.path == "/api/fleet/remove":
-            path_str = payload.get("path", "").strip()
-            fleet = get_fleet()
-            fleet = [item for item in fleet if str(Path(item["path"]).resolve()) != str(Path(path_str).resolve())]
-            save_fleet(fleet)
-            self.send_json({"success": True, "fleet": [inspect_project(item) for item in fleet]})
-            return
-
-        if parsed.path == "/api/lock/toggle":
-            project_path = payload.get("project_path")
-            skill_name = payload.get("skill_name")
-            enable = payload.get("enable", True)
-
-            p = Path(project_path).resolve()
-            lock_file = p / "skills.lock.json"
-
-            lock_data = {"library_path": ".skills-library", "skills": {}}
-            if lock_file.exists():
-                try:
-                    lock_data = json.loads(lock_file.read_text(encoding="utf-8"))
-                except Exception:
-                    pass
-
-            skills_dict = lock_data.get("skills", {})
-            catalog = get_catalog_data()
-
-            if enable:
-                ver = catalog.get(skill_name, {}).get("version", "1.0.0")
-                skills_dict[skill_name] = {"version": ver}
-            else:
-                skills_dict.pop(skill_name, None)
-
-            lock_data["skills"] = skills_dict
-            lock_file.write_text(json.dumps(lock_data, indent=2, ensure_ascii=False), encoding="utf-8")
-
-            # Executa sync automático
-            sync_result = self.run_sync(str(p))
-            self.send_json({"success": True, "lock": lock_data, "sync_output": sync_result})
-            return
-
-        if parsed.path == "/api/sync":
-            project_path = payload.get("project_path")
-            if not project_path:
-                # Sync de toda a frota
-                fleet = get_fleet()
-                outputs = {}
-                for item in fleet:
-                    outputs[item["name"]] = self.run_sync(item["path"])
-                self.send_json({"success": True, "outputs": outputs})
-                return
-            else:
-                out = self.run_sync(project_path)
-                self.send_json({"success": True, "output": out})
-                return
-
-        if parsed.path == "/api/preview":
-            raw_text = payload.get("raw", "")
-            if not raw_text:
-                self.send_json({"error": "Conteúdo raw é obrigatório"}, status=400)
-                return
-
-            try:
-                fm, body = sync_skills.parse_frontmatter(raw_text)
-                name = fm.get("name", "minha-skill")
-                desc = fm.get("description", "")
-                globs = fm.get("globs", [])
-                globs_str = ", ".join(globs) if isinstance(globs, list) else str(globs)
-                always_apply = "true" if fm.get("always_apply") else "false"
-
-                # Cursor Preview
-                desc_clean = " ".join(desc.split())
-                cursor_preview = (
-                    f"---\n"
-                    f"description: {desc_clean}\n"
-                    f"globs: {globs_str}\n"
-                    f"alwaysApply: {always_apply}\n"
-                    f"---\n\n"
-                    f"{body}\n"
-                )
-
-                # Gemini Preview
-                gemini_import = f"@skills/{name}.md"
-                gemini_file = f"# {name}\n\n> Quando usar: {desc}\n\n{body}\n"
-
-                # Claude Preview
-                claude_preview = raw_text
-
-                # Copilot Preview
-                copilot_preview = f"## {name}\n\n{body}\n"
-
-                # Windsurf Preview
-                windsurf_preview = f"{body}\n"
-
-                # Antigravity Preview (.agents/skills/<name>/SKILL.md & AGENTS.md entry)
-                antigravity_preview = (
-                    f"// [.agents/skills/{name}/SKILL.md]:\n"
-                    f"{raw_text}\n\n"
-                    f"// [Entrada no AGENTS.md]:\n"
-                    f"## Skill: `{name}`\n> {desc}\n\nPath: `.agents/skills/{name}/SKILL.md`\n"
-                )
-
-                self.send_json({
-                    "frontmatter": fm,
-                    "body": body,
-                    "previews": {
-                        "cursor": cursor_preview,
-                        "antigravity": antigravity_preview,
-                        "claude": claude_preview,
-                        "gemini": {"file": gemini_file, "import": gemini_import},
-                        "windsurf": windsurf_preview,
-                        "copilot": copilot_preview,
-                    }
-                })
-            except Exception as e:
-                self.send_json({"error": f"Erro de parsing: {e}"}, status=400)
-            return
-
-        if parsed.path == "/api/skill/save":
-            raw_text = payload.get("raw", "").strip()
-            if not raw_text:
-                self.send_json({"error": "Conteúdo raw do SKILL.md é obrigatório"}, status=400)
-                return
-
-            try:
-                fm, body = sync_skills.parse_frontmatter(raw_text)
-                name = fm.get("name", "").strip()
-                if not name:
-                    self.send_json({"error": "O campo 'name' é obrigatório no frontmatter YAML."}, status=400)
-                    return
-
-                if not re.match(r"^[a-zA-Z0-9_-]+$", name):
-                    self.send_json({"error": "O nome da skill deve conter apenas letras, números, hífens ou underscores."}, status=400)
-                    return
-
-                desc = fm.get("description", "")
-                version = str(fm.get("version", "1.0.0"))
-                tags = fm.get("tags", [])
-                if isinstance(tags, str):
-                    tags = [t.strip() for t in tags.split(",") if t.strip()]
-
-                # Cria diretório global da skill
-                skill_dir = LIBRARY_ROOT / "global" / name
-                skill_dir.mkdir(parents=True, exist_ok=True)
-                skill_file = skill_dir / "SKILL.md"
-                skill_file.write_text(raw_text, encoding="utf-8")
-
-                # Atualiza catalog.json
-                cat_path = LIBRARY_ROOT / "catalog.json"
-                catalog = {}
-                if cat_path.exists():
-                    try:
-                        catalog = json.loads(cat_path.read_text(encoding="utf-8"))
-                    except Exception:
-                        pass
-
-                existing_entry = catalog.get(name, {})
-                compatible_with = existing_entry.get("compatible_with", ["claude", "gemini", "cursor", "windsurf", "copilot"])
-                used_by = existing_entry.get("used_by", [])
-                status = existing_entry.get("status", "stable")
-
-                catalog[name] = {
-                    "path": f"global/{name}/SKILL.md",
-                    "description": desc,
-                    "tags": tags,
-                    "compatible_with": compatible_with,
-                    "used_by": used_by,
-                    "status": status,
-                    "version": version,
-                }
-
-                cat_path.write_text(json.dumps(catalog, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-                self.send_json({
-                    "success": True,
-                    "message": f"Skill '{name}' salva com sucesso em global/{name}/SKILL.md e catalog.json!",
-                    "skill_name": name,
-                    "catalog": get_catalog_data(),
-                })
-            except Exception as e:
-                self.send_json({"error": f"Erro ao salvar skill: {e}"}, status=400)
-            return
-
-        if parsed.path == "/api/skill/promote":
-            project_path_str = payload.get("project_path", "").strip()
-            skill_name = payload.get("skill_name", "").strip()
-
-            if not project_path_str or not skill_name:
-                self.send_json({"error": "project_path e skill_name são obrigatórios"}, status=400)
-                return
-
-            p_path = Path(project_path_str).resolve()
-            src_skill_dir = p_path / "skills" / "local" / skill_name
-            src_skill_file = src_skill_dir / "SKILL.md"
-
-            if not src_skill_file.exists():
-                self.send_json({"error": f"Skill local não encontrada em: {src_skill_file}"}, status=404)
-                return
-
-            try:
-                # 1. Lê e valida o SKILL.md da skill local
-                raw_content = src_skill_file.read_text(encoding="utf-8")
-                fm, body = sync_skills.parse_frontmatter(raw_content)
-
-                dest_global_dir = LIBRARY_ROOT / "global" / skill_name
-                dest_global_dir.mkdir(parents=True, exist_ok=True)
-
-                # 2. Copia todos os arquivos (SKILL.md, scripts/, references/, etc.) para global
-                shutil.copytree(src_skill_dir, dest_global_dir, dirs_exist_ok=True)
-
-                # 3. Registra no catalog.json global
-                cat_path = LIBRARY_ROOT / "catalog.json"
-                catalog = {}
-                if cat_path.exists():
-                    try:
-                        catalog = json.loads(cat_path.read_text(encoding="utf-8"))
-                    except Exception:
-                        pass
-
-                existing_entry = catalog.get(skill_name, {})
-                used_by = existing_entry.get("used_by", [])
-                if p_path.name not in used_by:
-                    used_by.append(p_path.name)
-
-                desc = fm.get("description", "")
-                version = str(fm.get("version", "1.0.0"))
-                tags = fm.get("tags", ["promoted", "local"])
-                if isinstance(tags, str):
-                    tags = [t.strip() for t in tags.split(",") if t.strip()]
-
-                compat = fm.get("compatible_with", ["claude", "gemini", "cursor", "windsurf", "copilot", "antigravity"])
-
-                catalog[skill_name] = {
-                    "path": f"global/{skill_name}/SKILL.md",
-                    "description": desc,
-                    "tags": tags,
-                    "compatible_with": compat,
-                    "used_by": used_by,
-                    "status": "stable",
-                    "version": version,
-                }
-                cat_path.write_text(json.dumps(catalog, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-                # 4. Remove a pasta local após migração
-                shutil.rmtree(src_skill_dir)
-
-                # 5. Registra no skills.lock.json do projeto
-                lock_file = p_path / "skills.lock.json"
-                lock_data = {"library_path": ".skills-library", "skills": {}}
-                if lock_file.exists():
-                    try:
-                        lock_data = json.loads(lock_file.read_text(encoding="utf-8"))
-                    except Exception:
-                        pass
-                lock_skills = lock_data.get("skills", {})
-                lock_skills[skill_name] = {"version": version}
-                lock_data["skills"] = lock_skills
-                lock_file.write_text(json.dumps(lock_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-                # 6. Executa sincronização do projeto
-                sync_out = self.run_sync(str(p_path))
-
-                self.send_json({
-                    "success": True,
-                    "message": f"Skill '{skill_name}' promovida com sucesso para global/{skill_name}/SKILL.md e sincronizada em {p_path.name}!",
-                    "skill_name": skill_name,
-                    "sync_output": sync_out,
-                    "catalog": get_catalog_data(),
-                })
-            except Exception as e:
-                self.send_json({"error": f"Erro ao promover skill: {e}"}, status=500)
-            return
-
-        if parsed.path == "/api/validate":
-            try:
-                sync_script = SCRIPTS_DIR / "sync_skills.py"
-                proc = subprocess.run(
-                    [sys.executable, str(sync_script), "--check", "--library-path", str(LIBRARY_ROOT)],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                )
-                self.send_json({
-                    "success": proc.returncode == 0,
-                    "output": proc.stdout or proc.stderr,
-                })
-            except Exception as e:
-                self.send_json({"success": False, "output": str(e)}, status=500)
-            return
-
-        self.send_error(404, "Endpoint não encontrado")
-
-    def run_sync(self, project_path: str) -> str:
-        try:
-            sync_script = SCRIPTS_DIR / "sync_skills.py"
-            proc = subprocess.run(
-                [sys.executable, str(sync_script), project_path, "--clean"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
-            return proc.stdout or proc.stderr
-        except Exception as e:
-            return f"Erro ao executar sync: {e}"
-
-    def send_json(self, data: Any, status: int = 200):
-        body = json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
+    def send_json(self, data: Any, status: int = 200) -> None:
+        payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Length", str(len(payload)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
-        self.wfile.write(body)
+        self.wfile.write(payload)
+
+    def send_error_json(self, message: str, status: int = 400) -> None:
+        self.send_json({"error": message, "status": status}, status=status)
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    def read_json_body(self) -> Optional[Dict[str, Any]]:
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            if content_length <= 0:
+                return {}
+            raw_bytes = self.rfile.read(content_length)
+            try:
+                raw_data = raw_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                raw_data = raw_bytes.decode("latin-1", errors="replace")
+            return json.loads(raw_data)
+        except Exception:
+            return None
+
+    # --------------------------------------------------------------------------
+    # Roteamento GET
+    # --------------------------------------------------------------------------
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+
+        # Rota de Status da API
+        if path == "/api/status":
+            self.send_json({
+                "status": "online",
+                "app": "Axion Cockpit",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            return
+
+        # Listar Projetos: GET /api/projects
+        if path == "/api/projects":
+            projects = load_projects()
+            enriched = []
+            for p in projects:
+                p_copy = dict(p)
+                valid, resolved_path, _ = scanner.is_valid_project_path(p.get("path", ""))
+                p_copy["accessible"] = valid
+                if valid and resolved_path:
+                    p_copy["git"] = scanner.get_git_telemetry(resolved_path)
+                    p_copy["env"] = scanner.get_env_indicators(resolved_path)
+                else:
+                    p_copy["git"] = {"is_repo": False, "branch": "", "is_dirty": False, "uncommitted_count": 0}
+                    p_copy["env"] = {}
+                enriched.append(p_copy)
+            self.send_json(enriched)
+            return
+
+        # Documentos e Diagramas: GET /api/projects/{id}/docs
+        m_docs = re.match(r"^/api/projects/([^/]+)/docs$", path)
+        if m_docs:
+            project_id = m_docs.group(1)
+            proj = get_project_by_id(project_id)
+            if not proj:
+                self.send_error_json("Projeto não encontrado", 404)
+                return
+            valid, resolved_path, err = scanner.is_valid_project_path(proj.get("path", ""))
+            if not valid or not resolved_path:
+                self.send_error_json(err or "Caminho do projeto inacessível", 400)
+                return
+            docs_payload = scanner.scan_project_docs(resolved_path)
+            self.send_json(docs_payload)
+            return
+
+        # Telemetria Git: GET /api/projects/{id}/git-telemetry
+        m_git = re.match(r"^/api/projects/([^/]+)/git-telemetry$", path)
+        if m_git:
+            project_id = m_git.group(1)
+            proj = get_project_by_id(project_id)
+            if not proj:
+                self.send_error_json("Projeto não encontrado", 404)
+                return
+            valid, resolved_path, err = scanner.is_valid_project_path(proj.get("path", ""))
+            if not valid or not resolved_path:
+                self.send_error_json(err or "Caminho inacessível", 400)
+                return
+            self.send_json(scanner.get_git_telemetry(resolved_path))
+            return
+
+        # Notas de Melhoria: GET /api/projects/{id}/notes
+        m_notes = re.match(r"^/api/projects/([^/]+)/notes$", path)
+        if m_notes:
+            project_id = m_notes.group(1)
+            proj = get_project_by_id(project_id)
+            if not proj:
+                self.send_error_json("Projeto não encontrado", 404)
+                return
+            proj_notes_dir = NOTES_BASE_DIR / project_id
+            notes_list = []
+            if proj_notes_dir.exists() and proj_notes_dir.is_dir():
+                for nf in proj_notes_dir.glob("*.md"):
+                    try:
+                        notes_list.append(parse_markdown_note(nf))
+                    except Exception:
+                        pass
+            notes_list.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+            self.send_json(notes_list)
+            return
+
+        # Servir Arquivos Estáticos (index.html, static/*)
+        super().do_GET()
+
+    # --------------------------------------------------------------------------
+    # Roteamento POST
+    # --------------------------------------------------------------------------
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        body = self.read_json_body()
+        if body is None:
+            self.send_error_json("Corpo da requisição JSON inválido", 400)
+            return
+
+        # Registrar Projeto: POST /api/projects
+        if path == "/api/projects":
+            name = (body.get("name") or "").strip()
+            raw_path = (body.get("path") or "").strip()
+            tags = body.get("tags", [])
+            version = (body.get("version") or "v1.0.0").strip()
+
+            valid, resolved_path, err_msg = scanner.is_valid_project_path(raw_path)
+            if not valid or not resolved_path:
+                self.send_error_json(err_msg or "Caminho de projeto inválido.", 400)
+                return
+
+            if not name:
+                name = resolved_path.name
+
+            projects = load_projects()
+            # Gera ID seguro
+            clean_id = re.sub(r"[^a-zA-Z0-9_-]", "-", name.lower()).strip("-")
+            project_id = clean_id or "project"
+            counter = 1
+            existing_ids = {p.get("id") for p in projects}
+            while project_id in existing_ids:
+                project_id = f"{clean_id}-{counter}"
+                counter += 1
+
+            new_proj = {
+                "id": project_id,
+                "name": name,
+                "path": str(resolved_path),
+                "current_version": version,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "tags": tags if isinstance(tags, list) else [],
+            }
+            projects.append(new_proj)
+            save_projects(projects)
+
+            # Cria diretório de notas correspondente
+            (NOTES_BASE_DIR / project_id).mkdir(parents=True, exist_ok=True)
+            self.send_json(new_proj, 201)
+            return
+
+        # Criar Nota: POST /api/projects/{id}/notes
+        m_add_note = re.match(r"^/api/projects/([^/]+)/notes$", path)
+        if m_add_note:
+            project_id = m_add_note.group(1)
+            proj = get_project_by_id(project_id)
+            if not proj:
+                self.send_error_json("Projeto não encontrado", 404)
+                return
+
+            title = (body.get("title") or "Nova Melhoria").strip()
+            status = (body.get("status") or "idea").strip().lower()
+            if status not in ("idea", "planned", "in_review", "incorporated"):
+                status = "idea"
+            content = body.get("content") or ""
+            target_files = body.get("target_files", [])
+            version_target = (body.get("version_target") or "").strip()
+
+            proj_notes_dir = NOTES_BASE_DIR / project_id
+            proj_notes_dir.mkdir(parents=True, exist_ok=True)
+
+            ts_slug = datetime.now().strftime("%Y%m%d_%H%M%S")
+            title_slug = re.sub(r"[^a-zA-Z0-9_-]", "-", title.lower())[:30].strip("-")
+            note_filename = f"{ts_slug}_{title_slug}.md" if title_slug else f"{ts_slug}.md"
+            note_file = proj_notes_dir / note_filename
+
+            meta = {
+                "id": note_file.stem,
+                "title": title,
+                "status": status,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "target_files": target_files if isinstance(target_files, list) else [],
+                "version_target": version_target,
+            }
+            write_markdown_note(note_file, meta, content)
+            meta["content"] = content
+            self.send_json(meta, 201)
+            return
+
+        # Atualizar Versão do Projeto: POST /api/projects/{id}/version
+        m_version = re.match(r"^/api/projects/([^/]+)/version$", path)
+        if m_version:
+            project_id = m_version.group(1)
+            new_version = (body.get("version") or "").strip()
+            if not new_version:
+                self.send_error_json("Versão não informada", 400)
+                return
+
+            projects = load_projects()
+            updated = False
+            for p in projects:
+                if p.get("id") == project_id:
+                    p["current_version"] = new_version
+                    p["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    updated = True
+                    break
+
+            if not updated:
+                self.send_error_json("Projeto não encontrado", 404)
+                return
+
+            save_projects(projects)
+            self.send_json({"id": project_id, "current_version": new_version})
+            return
+
+        self.send_error_json("Rota POST não encontrada", 404)
+
+    # --------------------------------------------------------------------------
+    # Roteamento PUT
+    # --------------------------------------------------------------------------
+    def do_PUT(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        body = self.read_json_body()
+        if body is None:
+            self.send_error_json("Corpo da requisição JSON inválido", 400)
+            return
+
+        # Atualizar Nota: PUT /api/projects/{id}/notes/{note_id}
+        m_put_note = re.match(r"^/api/projects/([^/]+)/notes/([^/]+)$", path)
+        if m_put_note:
+            project_id = m_put_note.group(1)
+            note_id = m_put_note.group(2)
+            proj = get_project_by_id(project_id)
+            if not proj:
+                self.send_error_json("Projeto não encontrado", 404)
+                return
+
+            note_file = NOTES_BASE_DIR / project_id / f"{note_id}.md"
+            if not note_file.exists():
+                self.send_error_json("Nota não encontrada", 404)
+                return
+
+            current_note = parse_markdown_note(note_file)
+            if "title" in body:
+                current_note["title"] = str(body["title"]).strip()
+            if "status" in body:
+                st = str(body["status"]).strip().lower()
+                if st in ("idea", "planned", "in_review", "incorporated"):
+                    current_note["status"] = st
+            if "target_files" in body and isinstance(body["target_files"], list):
+                current_note["target_files"] = body["target_files"]
+            if "version_target" in body:
+                current_note["version_target"] = str(body["version_target"]).strip()
+            content = body.get("content", current_note.get("content", ""))
+
+            write_markdown_note(note_file, current_note, content)
+            current_note["content"] = content
+            self.send_json(current_note, 200)
+            return
+
+        self.send_error_json("Rota PUT não encontrada", 404)
+
+    # --------------------------------------------------------------------------
+    # Roteamento DELETE
+    # --------------------------------------------------------------------------
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+
+        # Remover Projeto: DELETE /api/projects/{id}
+        m_del_proj = re.match(r"^/api/projects/([^/]+)$", path)
+        if m_del_proj:
+            project_id = m_del_proj.group(1)
+            projects = load_projects()
+            filtered = [p for p in projects if p.get("id") != project_id]
+            if len(filtered) == len(projects):
+                self.send_error_json("Projeto não encontrado", 404)
+                return
+            save_projects(filtered)
+            self.send_json({"status": "deleted", "id": project_id})
+            return
+
+        # Remover Nota: DELETE /api/projects/{id}/notes/{note_id}
+        m_del_note = re.match(r"^/api/projects/([^/]+)/notes/([^/]+)$", path)
+        if m_del_note:
+            project_id = m_del_note.group(1)
+            note_id = m_del_note.group(2)
+            note_file = NOTES_BASE_DIR / project_id / f"{note_id}.md"
+            if not note_file.exists():
+                self.send_error_json("Nota não encontrada", 404)
+                return
+            try:
+                note_file.unlink()
+                self.send_json({"status": "deleted", "id": note_id})
+            except Exception as e:
+                self.send_error_json(f"Falha ao excluir nota: {str(e)}", 500)
+            return
+
+        self.send_error_json("Rota DELETE não encontrada", 404)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Skills OS Management Dashboard Server.")
-    parser.add_argument("--port", "-p", type=int, default=4100, help="Porta HTTP do servidor (padrão: 4100).")
-    parser.add_argument("--host", default="127.0.0.1", help="Host do servidor (padrão: 127.0.0.1).")
-    args = parser.parse_args()
+# ==============================================================================
+# Entrypoint de Execução do Servidor
+# ==============================================================================
 
-    server_address = (args.host, args.port)
-    with socketserver.TCPServer(server_address, SkillsOSRequestHandler) as httpd:
-        print("=" * 60)
-        print("  🖥️  SKILLS OS — Management & Governance Dashboard")
-        print("=" * 60)
-        print(f"  URL Local:     http://{args.host}:{args.port}")
-        print(f"  Library Root:  {LIBRARY_ROOT}")
-        print("=" * 60)
-        print("  Pressione Ctrl+C para encerrar o servidor.")
+def run_server(port: int = 4100, host: str = "127.0.0.1") -> None:
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.TCPServer((host, port), ProjectOSHandler) as httpd:
+        print(f"============================================================")
+        print(f"  Axion Cockpit — Console Operacional e Visual de Projetos")
+        print(f"  URL Local: http://{host}:{port}")
+        print(f"  Modo: Observador Passivo (Zero-Dependencies)")
+        print(f"============================================================")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
-            print("\nServidor encerrado.")
+            print("\nEncerrando Axion Cockpit...")
 
 
 if __name__ == "__main__":
-    main()
+    env_port = int(os.environ.get("PORT", "4100")) if os.environ.get("PORT") else 4100
+    env_host = os.environ.get("HOST", "127.0.0.1")
+    parser = argparse.ArgumentParser(description="Axion Cockpit Local Server")
+    parser.add_argument("--port", type=int, default=env_port, help=f"Porta TCP (padrão: {env_port})")
+    parser.add_argument("--host", type=str, default=env_host, help=f"Host bind (padrão: {env_host})")
+    args = parser.parse_args()
+    run_server(port=args.port, host=args.host)

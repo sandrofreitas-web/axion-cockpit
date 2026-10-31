@@ -1,0 +1,27 @@
+name: axion-cockpit
+
+services:
+  axion-cockpit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: axion-cockpit:latest
+    container_name: axion-cockpit
+    restart: unless-stopped
+    ports:
+      - "${PORT:-4100}:4100"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=4100
+    volumes:
+      # Persistência de dados: catálogo de projetos e notas markdown
+      - ./data:/app/data
+      # Volume para inspeção de projetos do host no Linux/WSL/Docker
+      # Mapeia o diretório pai ou diretório de projetos para que o scanner leia documentos locais
+      - ${PROJECTS_HOST_DIR:-..}:/projects:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4100/api/projects').read()\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
