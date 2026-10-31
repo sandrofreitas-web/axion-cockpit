@@ -4,8 +4,9 @@ O **Axion Cockpit** é um console local de observabilidade e gestão operacional
 
 Ele opera sob o **Princípio do Observador Passivo**:
 - **Zero Dependências Externas**: Executa 100% na biblioteca padrão do Python (`http.server` e `socketserver`). Não exige `pip install`, FastAPI ou virtualenvs.
-- **Zero Drift (On-Demand)**: Não duplica dados nem persiste caches de documentação. Ao abrir um projeto, o Axion Cockpit lê os arquivos Markdown diretamente do disco local em tempo real (<1ms).
-- **Renderização Visual Client-Side**: O navegador interpreta o Markdown e renderiza os diagramas de fluxos operacionais e modelos relacionais (ERD) interativamente usando **Mermaid.js**.
+- **Modelo de Ingestão Simplificado**: Suporta seleção direta de pastas do Windows Explorer pelo navegador ou caminhos do host, com ingestão instantânea de arquivos Markdown e manifestos sem depender de pontos rígidos de montagem.
+- **Zero Drift (On-Demand)**: Não duplica dados nem persiste caches de documentação desatualizados. Lê os arquivos técnicos sob demanda diretamente do disco em tempo real.
+- **Renderização Visual Interativa (Mermaid.js)**: Diagramas renderizados em tamanho natural legível, com suporte nativo a Pan (arrastar com o mouse), Zoom contínuo (30% a 350%), roda do mouse (Wheel), ajuste automático e Modo Tela Cheia dedicado.
 - **Ledger de Melhorias Desacoplado**: Permite registrar ideias, débitos técnicos e notas de revisão por projeto em arquivos Markdown locais, sem poluir a árvore de commits do repositório monitorado até a homologação da versão.
 - **Pronto para Docker**: Disponível como imagem contêinerizada enxuta baseada em `python:3.12-slim` com Docker Compose e suporte nativo a volumes.
 - **Fronteira com o Orca**: O Axion Cockpit é estritamente uma interface de visualização e gestão passiva. A orquestração e execução de comandos por agentes de IA é conduzida externamente pelo **Orca** ou pelo operador via terminal CLI.
@@ -58,6 +59,7 @@ Abra o navegador em: **`http://127.0.0.1:4100`**
 axion-cockpit/
 ├── data/                                  # Persistência em arquivos planos
 │   ├── projects.json                      # Registro central da frota de projetos locais
+│   ├── ingested/                          # Documentações ingeridas via upload/seletor
 │   └── notes/                             # Notas de melhoria individuais por projeto
 │       └── {project_id}/                  # Arquivos .md com frontmatter
 ├── docs/                                  # Documentação técnica organizada
@@ -105,7 +107,7 @@ Para aprofundar-se em cada aspecto do Axion Cockpit, consulte a documentação e
 
 ## Convenção de Documentação Recomendada
 
-O Axion Cockpit reconhece automaticamente qualquer documentação existente nos projetos monitorados. Para máxima riqueza visual, recomenda-se adicionar um arquivo `ARCHITECTURE.md` (ou `docs/ARCHITECTURE.md`) contendo:
+O Axion Cockpit reconhece automaticamente qualquer documentação existente nos projetos monitorados. Para máxima riqueza visual, recomenda-se adicionar um arquivo `ARCHITECTURE.md` (ou `docs/ARCHITECTURE.md`, `TECSPEC.md`, `TECHSPEC.md`) contendo:
 
 1. **Visão Geral & Techspec**: Especificação de runtimes, bancos, portas e variáveis críticas.
 2. **Workflows Operacionais**: Blocos de código ````mermaid (diagramas `flowchart` ou `sequenceDiagram`).
@@ -128,7 +130,7 @@ Templates prontos para cópia estão disponíveis em:
 
 ## Testes Automatizados
 
-A suíte de testes unitários cobre validação de caminhos, proteção anti-path traversal, extração de diagramas Mermaid e persistência de notas:
+A suíte de testes unitários cobre validação de caminhos, proteção anti-path traversal, extração de diagramas Mermaid, persistência de notas, descoberta de projetos e resolução de documentação ingerida:
 
 ```bash
 # Executar localmente com Python:

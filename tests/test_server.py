@@ -38,6 +38,43 @@ class TestProjectOSScanner(unittest.TestCase):
         self.assertIsNotNone(resolved)
         self.assertTrue(resolved.is_dir())
 
+    def test_path_validation_with_quotes(self):
+        quoted_path = f'"{REPO_ROOT}"'
+        valid, resolved, err = scanner.is_valid_project_path(quoted_path)
+        self.assertTrue(valid)
+        self.assertIsNone(err)
+        self.assertIsNotNone(resolved)
+        self.assertTrue(resolved.is_dir())
+
+    def test_discover_local_projects(self):
+        candidates = scanner.discover_local_projects()
+        self.assertIsInstance(candidates, list)
+
+    def test_browse_directory(self):
+        result = scanner.browse_directory("")
+        self.assertIn("folders", result)
+        self.assertIn("current_display", result)
+        self.assertIsInstance(result["folders"], list)
+
+    def test_ingested_project_resolution(self):
+        # Simula diretório de ingestão
+        ingested_dir = app.INGESTED_BASE_DIR / "test-ingested-proj"
+        ingested_dir.mkdir(parents=True, exist_ok=True)
+        (ingested_dir / "README.md").write_text("# Test Ingested\n```mermaid\nflowchart TD\nA-->B\n```", encoding="utf-8")
+
+        proj_entry = {"id": "test-ingested-proj", "name": "Test Ingested", "path": "test-ingested-proj"}
+        valid, resolved, err = app.resolve_project_path(proj_entry)
+        self.assertTrue(valid)
+        self.assertEqual(resolved, ingested_dir)
+
+        docs = scanner.scan_project_docs(resolved)
+        self.assertEqual(len(docs["workflows"]), 1)
+        self.assertIn("Test Ingested", docs["primary_doc"])
+
+        # Limpeza
+        import shutil
+        shutil.rmtree(ingested_dir, ignore_errors=True)
+
     def test_path_validation_dangerous_system_paths(self):
         for danger in scanner.DANGEROUS_SYSTEM_PATHS:
             if danger.exists():

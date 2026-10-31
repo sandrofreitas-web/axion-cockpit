@@ -4,24 +4,163 @@
  * renderização client-side de diagramas Mermaid.js e quadro Kanban de notas.
  */
 
-// Inicializa o Mermaid.js com tema escuro adaptado
+// Inicializa o Mermaid.js com tema escuro adaptado e renderização em tamanho real
 if (window.mermaid) {
   mermaid.initialize({
     startOnLoad: false,
-    theme: 'dark',
+    theme: 'base',
     securityLevel: 'loose',
+    flowchart: {
+      useMaxWidth: false,
+      htmlLabels: true,
+      curve: 'basis'
+    },
+    sequence: {
+      useMaxWidth: false,
+      showSequenceNumbers: true,
+      actorFontSize: 14,
+      messageFontSize: 13
+    },
+    er: {
+      useMaxWidth: false,
+      fontSize: 13
+    },
     themeVariables: {
       darkMode: true,
       background: '#0d1117',
-      primaryColor: '#1f6feb',
-      primaryTextColor: '#c9d1d9',
+      primaryColor: '#161b22',
+      primaryTextColor: '#f0f6fc',
       primaryBorderColor: '#388bfd',
       lineColor: '#58a6ff',
-      secondaryColor: '#161b22',
-      tertiaryColor: '#21262d'
+      secondaryColor: '#21262d',
+      tertiaryColor: '#161b22',
+      mainBkg: '#161b22',
+      nodeBorder: '#388bfd',
+      nodeTextColor: '#f0f6fc',
+      clusterBkg: '#0d1117',
+      clusterBorder: '#30363d',
+      titleColor: '#58a6ff',
+      edgeLabelBackground: '#161b22',
+      actorBorder: '#388bfd',
+      actorBkg: '#161b22',
+      actorTextColor: '#f0f6fc',
+      actorLineColor: '#58a6ff',
+      signalColor: '#58a6ff',
+      signalTextColor: '#f0f6fc',
+      labelBoxBkgColor: '#161b22',
+      labelBoxBorderColor: '#388bfd',
+      labelTextColor: '#f0f6fc',
+      loopTextColor: '#f0f6fc',
+      noteBorderColor: '#d29922',
+      noteBkgColor: '#272015',
+      noteTextColor: '#f0f6fc',
+      fontSize: '14px',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
     }
   });
 }
+
+// Controlador de Pan & Zoom para Viewports Mermaid
+class DiagramPanZoom {
+  constructor(viewportEl, canvasEl, onScaleChange) {
+    this.viewport = viewportEl;
+    this.canvas = canvasEl;
+    this.onScaleChange = onScaleChange;
+    this.scale = 1.0;
+    this.panX = 0;
+    this.panY = 0;
+    this.isDragging = false;
+    this.startX = 0;
+    this.startY = 0;
+    this.setupEvents();
+  }
+
+  updateTransform(smooth = false) {
+    this.canvas.style.transition = smooth ? 'transform 0.15s ease-out' : 'none';
+    this.canvas.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.scale})`;
+    if (this.onScaleChange) {
+      this.onScaleChange(this.scale);
+    }
+  }
+
+  zoomIn(step = 0.25) {
+    this.scale = Math.min(3.5, Math.round((this.scale + step) * 100) / 100);
+    this.updateTransform(true);
+  }
+
+  zoomOut(step = 0.25) {
+    this.scale = Math.max(0.3, Math.round((this.scale - step) * 100) / 100);
+    this.updateTransform(true);
+  }
+
+  reset() {
+    this.scale = 1.0;
+    this.panX = 0;
+    this.panY = 0;
+    this.updateTransform(true);
+  }
+
+  fitToViewport() {
+    const svg = this.canvas.querySelector('svg');
+    if (!svg) return;
+    const vpRect = this.viewport.getBoundingClientRect();
+    const svgBBox = svg.getBBox ? svg.getBBox() : null;
+    const w = (svgBBox && svgBBox.width > 0) ? svgBBox.width : (svg.clientWidth || 800);
+    const h = (svgBBox && svgBBox.height > 0) ? svgBBox.height : (svg.clientHeight || 500);
+
+    if (w > 0 && h > 0 && vpRect.width > 0 && vpRect.height > 0) {
+      const availW = vpRect.width - 64;
+      const availH = vpRect.height - 64;
+      const ratio = Math.min(availW / w, availH / h, 1.25);
+      this.scale = Math.max(0.4, Math.min(1.5, Math.round(ratio * 100) / 100));
+      this.panX = 0;
+      this.panY = 0;
+      this.updateTransform(true);
+    }
+  }
+
+  setupEvents() {
+    this.viewport.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      this.isDragging = true;
+      this.viewport.classList.add('is-dragging');
+      this.startX = e.clientX - this.panX;
+      this.startY = e.clientY - this.panY;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!this.isDragging) return;
+      this.panX = e.clientX - this.startX;
+      this.panY = e.clientY - this.startY;
+      this.updateTransform(false);
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (this.isDragging) {
+        this.isDragging = false;
+        this.viewport.classList.remove('is-dragging');
+      }
+    });
+
+    // Zoom com a roda do mouse
+    this.viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.15 : -0.15;
+      const newScale = Math.max(0.3, Math.min(3.5, this.scale + delta));
+      this.scale = Math.round(newScale * 100) / 100;
+      this.updateTransform(false);
+    }, { passive: false });
+
+    // Duplo clique para ajustar
+    this.viewport.addEventListener('dblclick', () => {
+      this.fitToViewport();
+    });
+  }
+}
+
+// Registro global de controladores de PanZoom
+const activePanZooms = new Map();
+let fullscreenPanZoom = null;
 
 const state = {
   projects: [],
@@ -119,6 +258,27 @@ const api = {
     return res.json();
   },
 
+  async discoverProjects() {
+    try {
+      const res = await fetch('/api/projects/discover');
+      if (!res.ok) return [];
+      return await res.json();
+    } catch {
+      return [];
+    }
+  },
+
+  async browsePath(subpath = '') {
+    try {
+      const q = subpath ? `?path=${encodeURIComponent(subpath)}` : '';
+      const res = await fetch(`/api/system/browse${q}`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  },
+
   async addProject(payload) {
     const res = await fetch('/api/projects', {
       method: 'POST',
@@ -127,6 +287,17 @@ const api = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Falha ao registrar projeto');
+    return data;
+  },
+
+  async ingestProject(payload) {
+    const res = await fetch('/api/projects/ingest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Falha ao ingerir projeto');
     return data;
   },
 
@@ -381,22 +552,42 @@ async function renderMermaidSection(container, blocks, viewMode, prefix) {
     return;
   }
 
+  // Limpa instâncias antigas de pan-zoom deste prefixo
+  for (const [k, v] of activePanZooms.entries()) {
+    if (k.startsWith(prefix)) {
+      activePanZooms.delete(k);
+    }
+  }
+
   let html = '';
   blocks.forEach((b, index) => {
     const blockId = `${prefix}-diagram-${index}`;
     html += `
-      <div class="diagram-card">
+      <div class="diagram-card" id="${blockId}-card">
         <div class="diagram-card-header">
-          <span class="source-file">Origem: <code>${escapeHtml(b.source_file || 'docs')}</code></span>
-          <span class="diagram-type-pill">${escapeHtml(b.type)}</span>
+          <div class="diagram-header-info">
+            <span class="source-file">Origem: <code>${escapeHtml(b.source_file || 'docs')}</code></span>
+            <span class="diagram-type-pill">${escapeHtml(b.type)}</span>
+          </div>
+          ${viewMode === 'diagram' ? `
+            <div class="diagram-toolbar-controls">
+              <button type="button" class="diagram-tool-btn" data-action="zoom-out" data-target="${blockId}" title="Diminuir Zoom">🔍−</button>
+              <span class="zoom-level-badge" id="${blockId}-zoom-badge">100%</span>
+              <button type="button" class="diagram-tool-btn" data-action="zoom-in" data-target="${blockId}" title="Aumentar Zoom">🔍+</button>
+              <button type="button" class="diagram-tool-btn" data-action="fit" data-target="${blockId}" title="Ajustar à tela">Ajustar</button>
+              <button type="button" class="diagram-tool-btn" data-action="fullscreen" data-target="${blockId}" title="Visualizar em Tela Cheia">⛶ Tela Cheia</button>
+              <button type="button" class="diagram-tool-btn" data-action="copy" data-target="${blockId}" title="Copiar código Mermaid">📋 Copiar</button>
+            </div>
+          ` : ''}
         </div>
         <div class="diagram-render-area" id="${blockId}-area">
           ${viewMode === 'raw' ? `
             <pre class="raw-code-box"><code>${escapeHtml(b.code)}</code></pre>
           ` : `
-            <div class="mermaid-target" id="${blockId}">
+            <div class="diagram-canvas" id="${blockId}-canvas">
               <div class="diagram-loading">Renderizando diagrama...</div>
             </div>
+            <div class="diagram-viewport-hint">Arraste para mover • Scroll para zoom • Duplo clique para ajustar</div>
           `}
         </div>
       </div>
@@ -407,14 +598,25 @@ async function renderMermaidSection(container, blocks, viewMode, prefix) {
   if (viewMode === 'diagram' && window.mermaid) {
     blocks.forEach(async (b, index) => {
       const blockId = `${prefix}-diagram-${index}`;
-      const target = document.getElementById(blockId);
-      if (!target) return;
+      const areaEl = document.getElementById(`${blockId}-area`);
+      const canvasEl = document.getElementById(`${blockId}-canvas`);
+      const badgeEl = document.getElementById(`${blockId}-zoom-badge`);
+      if (!canvasEl || !areaEl) return;
+
       try {
         const renderId = `svg-${blockId}-${Date.now()}`;
         const { svg } = await mermaid.render(renderId, b.code);
-        target.innerHTML = svg;
+        canvasEl.innerHTML = svg;
+
+        // Configura Pan & Zoom com escala automática
+        const panZoom = new DiagramPanZoom(areaEl, canvasEl, (scale) => {
+          if (badgeEl) badgeEl.textContent = `${Math.round(scale * 100)}%`;
+        });
+        activePanZooms.set(blockId, { panZoom, block: b, svg });
+        setTimeout(() => panZoom.fitToViewport(), 40);
+
       } catch (err) {
-        target.innerHTML = `
+        canvasEl.innerHTML = `
           <div class="mermaid-error-box">
             <h4>⚠️ Erro na sintaxe do diagrama Mermaid</h4>
             <p>${escapeHtml(err.message || 'Sintaxe inválida')}</p>
@@ -423,6 +625,70 @@ async function renderMermaidSection(container, blocks, viewMode, prefix) {
         `;
       }
     });
+
+    // Event Delegation para a toolbar dos cards
+    container.querySelectorAll('.diagram-tool-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = btn.getAttribute('data-action');
+        const targetId = btn.getAttribute('data-target');
+        const entry = activePanZooms.get(targetId);
+        if (!entry) return;
+
+        if (action === 'zoom-in') entry.panZoom.zoomIn();
+        else if (action === 'zoom-out') entry.panZoom.zoomOut();
+        else if (action === 'fit') entry.panZoom.fitToViewport();
+        else if (action === 'fullscreen') openFullscreenDiagram(entry.block, entry.svg);
+        else if (action === 'copy') {
+          navigator.clipboard.writeText(entry.block.code).then(() => {
+            const original = btn.innerHTML;
+            btn.innerHTML = '✓ Copiado!';
+            setTimeout(() => { btn.innerHTML = original; }, 1500);
+          });
+        }
+      });
+    });
+  }
+}
+
+function openFullscreenDiagram(block, svgHtml) {
+  const modal = document.getElementById('modal-diagram-fullscreen');
+  const canvas = document.getElementById('fs-diagram-canvas');
+  const viewport = document.getElementById('fs-diagram-viewport');
+  const badge = document.getElementById('fs-zoom-badge');
+  const typeEl = document.getElementById('fs-diagram-type');
+  const sourceEl = document.getElementById('fs-diagram-source');
+  const copyBtn = document.getElementById('btn-fs-copy-code');
+  if (!modal || !canvas || !viewport) return;
+
+  typeEl.textContent = block.type || 'diagram';
+  sourceEl.innerHTML = `Origem: <code>${escapeHtml(block.source_file || 'docs')}</code>`;
+  canvas.innerHTML = svgHtml;
+  modal.style.display = 'flex';
+
+  fullscreenPanZoom = new DiagramPanZoom(viewport, canvas, (scale) => {
+    if (badge) badge.textContent = `${Math.round(scale * 100)}%`;
+  });
+
+  setTimeout(() => {
+    fullscreenPanZoom.fitToViewport();
+  }, 50);
+
+  // Bind botões do modal de tela cheia
+  const btnZoomIn = document.getElementById('btn-fs-zoom-in');
+  const btnZoomOut = document.getElementById('btn-fs-zoom-out');
+  const btnReset = document.getElementById('btn-fs-zoom-reset');
+
+  btnZoomIn.onclick = () => fullscreenPanZoom && fullscreenPanZoom.zoomIn();
+  btnZoomOut.onclick = () => fullscreenPanZoom && fullscreenPanZoom.zoomOut();
+  btnReset.onclick = () => fullscreenPanZoom && fullscreenPanZoom.fitToViewport();
+  if (copyBtn) {
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(block.code).then(() => {
+        copyBtn.textContent = '✓ Copiado!';
+        setTimeout(() => { copyBtn.textContent = '📋 Copiar'; }, 1500);
+      });
+    };
   }
 }
 
@@ -551,8 +817,273 @@ function setupEvents() {
     if (state.docsData) renderMermaidSection(elements.databaseContainer, state.docsData.database, 'raw', 'db');
   });
 
+  // Navegador de Pastas do Disco
+  let currentBrowsePath = '';
+  let currentBrowseData = null;
+
+  async function loadFolderBrowser(subpath = '') {
+    const container = document.getElementById('browser-list-container');
+    const breadcrumb = document.getElementById('browser-current-display');
+    const btnUp = document.getElementById('browser-btn-up');
+    if (!container) return;
+
+    container.innerHTML = '<div class="browser-loading">Carregando pastas...</div>';
+    const data = await api.browsePath(subpath);
+    if (!data) {
+      container.innerHTML = '<div class="browser-empty">Não foi possível ler as pastas.</div>';
+      return;
+    }
+
+    currentBrowsePath = data.current_rel || '';
+    currentBrowseData = data;
+
+    if (breadcrumb) {
+      breadcrumb.textContent = data.current_display || 'C:\\Docker';
+    }
+    if (btnUp) {
+      btnUp.disabled = data.is_root;
+    }
+
+    if (!data.folders || data.folders.length === 0) {
+      container.innerHTML = '<div class="browser-empty">Nenhuma subpasta encontrada neste nível.</div>';
+      return;
+    }
+
+    container.innerHTML = data.folders.map(f => `
+      <div class="browser-folder-item" data-folder-path="${escapeHtml(f.rel_path)}" data-folder-name="${escapeHtml(f.name)}" data-host-path="${escapeHtml(f.host_path)}">
+        <div class="folder-name">
+          <span>📁</span>
+          <span>${escapeHtml(f.name)}</span>
+          ${f.has_subfolders ? '<small style="font-size:10px; color:var(--text-muted);">(subpastas)</small>' : ''}
+        </div>
+        <div class="folder-actions">
+          <button type="button" class="btn-folder-select" data-select-path="${escapeHtml(f.rel_path)}" data-select-name="${escapeHtml(f.name)}" title="Selecionar esta pasta">
+            ✓ Selecionar
+          </button>
+        </div>
+      </div>
+    `).join('');
+
+    container.querySelectorAll('.browser-folder-item').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-folder-select')) return;
+        const nextPath = el.getAttribute('data-folder-path');
+        loadFolderBrowser(nextPath);
+      });
+
+      const selectBtn = el.querySelector('.btn-folder-select');
+      if (selectBtn) {
+        selectBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const folderRel = selectBtn.getAttribute('data-select-path');
+          const folderName = selectBtn.getAttribute('data-select-name');
+          applySelectedFolder(folderRel, folderName);
+        });
+      }
+    });
+  }
+
+  function applySelectedFolder(folderPath, folderName) {
+    const pathInput = document.getElementById('proj-input-path');
+    const nameInput = document.getElementById('proj-input-name');
+    if (pathInput) pathInput.value = folderPath;
+    if (nameInput && !nameInput.value) {
+      nameInput.value = folderName.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    }
+    const drawer = document.getElementById('folder-browser-drawer');
+    if (drawer) drawer.style.display = 'none';
+  }
+
+  // Eventos do Navegador de Pastas
+  const btnBrowse = document.getElementById('btn-browse-folders');
+  const browserDrawer = document.getElementById('folder-browser-drawer');
+  const btnBrowserUp = document.getElementById('browser-btn-up');
+  const btnBrowserSelectCurrent = document.getElementById('browser-btn-select-current');
+
+  if (btnBrowse && browserDrawer) {
+    btnBrowse.addEventListener('click', () => {
+      const isVisible = browserDrawer.style.display !== 'none';
+      if (isVisible) {
+        browserDrawer.style.display = 'none';
+      } else {
+        browserDrawer.style.display = 'block';
+        loadFolderBrowser(currentBrowsePath);
+      }
+    });
+  }
+
+  if (btnBrowserUp) {
+    btnBrowserUp.addEventListener('click', () => {
+      if (currentBrowseData && currentBrowseData.parent_rel !== undefined) {
+        loadFolderBrowser(currentBrowseData.parent_rel);
+      }
+    });
+  }
+
+  if (btnBrowserSelectCurrent) {
+    btnBrowserSelectCurrent.addEventListener('click', () => {
+      if (currentBrowseData) {
+        const folderName = currentBrowsePath ? currentBrowsePath.split('/').pop() : 'Docker';
+        applySelectedFolder(currentBrowsePath || '.', folderName);
+      }
+    });
+  }
+
+  // Estado de Ingestão de Pasta do Windows
+  let currentIngestedDocs = {};
+  let currentIngestedManifests = {};
+  let selectedFolderBaseName = '';
+
+  const nativeFolderPicker = document.getElementById('native-folder-picker');
+  const btnTriggerPicker = document.getElementById('btn-trigger-picker');
+  const pickerZone = document.getElementById('ingest-picker-zone');
+  const selectedCard = document.getElementById('ingest-selected-card');
+  const btnChangeFolder = document.getElementById('btn-change-folder');
+  const folderNameEl = document.getElementById('ingest-folder-name');
+  const docsCountEl = document.getElementById('ingest-docs-count');
+  const docsChipsEl = document.getElementById('ingest-docs-chips');
+  const submitIngestBtn = document.getElementById('btn-submit-ingest');
+  const nameInput = document.getElementById('proj-input-name');
+  const pathInput = document.getElementById('proj-input-path');
+
+  function resetIngestModal() {
+    currentIngestedDocs = {};
+    currentIngestedManifests = {};
+    selectedFolderBaseName = '';
+    if (pickerZone) pickerZone.style.display = 'block';
+    if (selectedCard) selectedCard.style.display = 'none';
+    if (submitIngestBtn) submitIngestBtn.disabled = true;
+    if (nativeFolderPicker) nativeFolderPicker.value = '';
+    if (elements.formAddProject) elements.formAddProject.reset();
+  }
+
+  if (btnTriggerPicker && nativeFolderPicker) {
+    btnTriggerPicker.addEventListener('click', () => {
+      nativeFolderPicker.click();
+    });
+  }
+  if (pickerZone && nativeFolderPicker) {
+    pickerZone.addEventListener('click', (e) => {
+      if (e.target !== btnTriggerPicker) {
+        nativeFolderPicker.click();
+      }
+    });
+  }
+  if (btnChangeFolder && nativeFolderPicker) {
+    btnChangeFolder.addEventListener('click', () => {
+      nativeFolderPicker.click();
+    });
+  }
+
+  if (nativeFolderPicker) {
+    nativeFolderPicker.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length === 0) return;
+
+      const firstRel = files[0].webkitRelativePath || '';
+      selectedFolderBaseName = firstRel.split('/')[0] || 'projeto';
+
+      currentIngestedDocs = {};
+      currentIngestedManifests = {};
+
+      const relevantNames = new Set([
+        'readme.md', 'architecture.md', 'techspec.md', 'workflows.md',
+        'database.md', 'schema.md', 'dockerfile', 'docker-compose.yml',
+        'docker-compose.yaml', 'package.json', 'pyproject.toml',
+        'requirements.txt', 'schema.prisma'
+      ]);
+
+      const detectedDocChips = [];
+
+      for (const file of files) {
+        const parts = file.webkitRelativePath.split('/');
+        parts.shift(); // remove nome da pasta raiz
+        const relPath = parts.join('/');
+        const lowerName = file.name.toLowerCase();
+        const isMd = lowerName.endsWith('.md');
+        const isManifest = relevantNames.has(lowerName);
+
+        if (isMd || isManifest) {
+          if (lowerName === 'dockerfile') currentIngestedManifests.has_dockerfile = true;
+          if (lowerName.startsWith('docker-compose')) currentIngestedManifests.has_compose = true;
+          if (lowerName === 'package.json') currentIngestedManifests.has_package_json = true;
+          if (lowerName === 'pyproject.toml') currentIngestedManifests.has_pyproject = true;
+          if (lowerName === 'schema.prisma') currentIngestedManifests.has_prisma = true;
+
+          if (file.size <= 2 * 1024 * 1024) {
+            try {
+              const text = await file.text();
+              currentIngestedDocs[relPath] = text;
+              detectedDocChips.push(relPath);
+            } catch (err) {
+              console.warn('Erro ao ler', file.name, err);
+            }
+          }
+        }
+      }
+
+      pickerZone.style.display = 'none';
+      selectedCard.style.display = 'block';
+      folderNameEl.textContent = selectedFolderBaseName;
+      docsCountEl.textContent = `${detectedDocChips.length} documento(s) e manifesto(s) encontrados`;
+
+      if (detectedDocChips.length > 0) {
+        docsChipsEl.innerHTML = detectedDocChips.slice(0, 10).map(c => `
+          <span class="ingest-doc-chip">📄 ${escapeHtml(c)}</span>
+        `).join('') + (detectedDocChips.length > 10 ? `<span class="ingest-doc-chip">+${detectedDocChips.length - 10} mais</span>` : '');
+      } else {
+        docsChipsEl.innerHTML = '<span class="muted-text" style="font-size:11px;">Nenhum arquivo README.md ou ARCHITECTURE.md detectado nesta pasta.</span>';
+      }
+
+      if (nameInput) {
+        nameInput.value = selectedFolderBaseName.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      }
+      if (pathInput) {
+        pathInput.value = selectedFolderBaseName;
+      }
+      if (submitIngestBtn) {
+        submitIngestBtn.disabled = false;
+      }
+    });
+  }
+
   // Modals Open
-  const openAddProjectModal = () => { elements.modalAddProject.style.display = 'flex'; };
+  const openAddProjectModal = async () => {
+    resetIngestModal();
+    elements.modalAddProject.style.display = 'flex';
+    const chipsContainer = document.getElementById('discovered-projects-chips');
+    if (chipsContainer) {
+      const discovered = await api.discoverProjects();
+      if (discovered && discovered.length > 0) {
+        chipsContainer.innerHTML = discovered.map(d => `
+          <button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 11px; border-radius: 12px; cursor: pointer;" title="Clique para usar ${escapeHtml(d.name)}" data-proj-name="${escapeHtml(d.name)}" data-proj-path="${escapeHtml(d.path)}">
+            📁 ${escapeHtml(d.name)}
+          </button>
+        `).join('');
+        chipsContainer.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const pathVal = btn.getAttribute('data-proj-path');
+            const nameVal = btn.getAttribute('data-proj-name');
+            if (pathInput) pathInput.value = pathVal;
+            if (nameInput) {
+              nameInput.value = nameVal.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            }
+            if (submitIngestBtn) submitIngestBtn.disabled = false;
+          });
+        });
+      }
+    }
+  };
+
+  // Habilita botão se digitar no input de caminho manual
+  if (pathInput && submitIngestBtn) {
+    pathInput.addEventListener('input', () => {
+      if (pathInput.value.trim().length > 0) {
+        submitIngestBtn.disabled = false;
+      }
+    });
+  }
+
   elements.btnOpenAddProject.addEventListener('click', openAddProjectModal);
   elements.btnEmptyAddProject.addEventListener('click', openAddProjectModal);
   elements.btnOpenAddNote.addEventListener('click', () => openNoteModal(null));
@@ -575,26 +1106,47 @@ function setupEvents() {
       const modalId = btn.getAttribute('data-close-modal');
       const m = document.getElementById(modalId);
       if (m) m.style.display = 'none';
+      if (modalId === 'modal-add-project') resetIngestModal();
     });
   });
 
-  // Submit Add Project
+  // Submit Ingest / Add Project
   elements.formAddProject.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const rawPath = document.getElementById('proj-input-path').value.trim();
-    const name = document.getElementById('proj-input-name').value.trim();
+    const rawInput = (pathInput ? pathInput.value : '').trim();
+    const rawPath = rawInput.replace(/^["']+|["']+$/g, '').trim();
+    const name = (nameInput ? nameInput.value : '').trim();
     const version = document.getElementById('proj-input-version').value.trim();
     const tagsRaw = document.getElementById('proj-input-tags').value.trim();
     const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
 
     try {
-      const created = await api.addProject({ path: rawPath, name, version, tags });
+      let created;
+      if (selectedFolderBaseName || Object.keys(currentIngestedDocs).length > 0) {
+        // Modelo de Ingestão Nativo
+        created = await api.ingestProject({
+          name: name || selectedFolderBaseName,
+          folder_name: selectedFolderBaseName,
+          path: rawPath || selectedFolderBaseName,
+          version,
+          tags,
+          docs: currentIngestedDocs,
+          manifests: currentIngestedManifests
+        });
+      } else {
+        if (!rawPath) {
+          alert('Por favor, selecione uma pasta no Windows ou informe o caminho.');
+          return;
+        }
+        created = await api.addProject({ path: rawPath, name, version, tags });
+      }
+
       closeAllModals();
-      elements.formAddProject.reset();
+      resetIngestModal();
       await init();
       selectProject(created.id);
     } catch (err) {
-      alert('Erro: ' + err.message);
+      alert('Erro ao ingerir projeto: ' + err.message);
     }
   });
 

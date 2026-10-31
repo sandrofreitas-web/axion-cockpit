@@ -15,7 +15,7 @@ import socketserver
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 
 # Garante saída UTF-8 no Windows
@@ -31,10 +31,12 @@ LIBRARY_ROOT = UI_ROOT.parent
 DATA_DIR = LIBRARY_ROOT / "data"
 PROJECTS_FILE = DATA_DIR / "projects.json"
 NOTES_BASE_DIR = DATA_DIR / "notes"
+INGESTED_BASE_DIR = DATA_DIR / "ingested"
 
 # Garante existência dos diretórios de dados
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 NOTES_BASE_DIR.mkdir(parents=True, exist_ok=True)
+INGESTED_BASE_DIR.mkdir(parents=True, exist_ok=True)
 
 if not PROJECTS_FILE.exists():
     PROJECTS_FILE.write_text("[]", encoding="utf-8")
@@ -66,6 +68,36 @@ def get_project_by_id(project_id: str) -> Optional[Dict[str, Any]]:
         if p.get("id") == project_id:
             return p
     return None
+
+
+def resolve_project_path(proj: Dict[str, Any]) -> Tuple[bool, Optional[Path], Optional[str]]:
+    """Resolve e valida o caminho de um projeto, tentando caminho no host, ingerido ou fallback."""
+    project_id = proj.get("id", "")
+    ingested_dir = INGESTED_BASE_DIR / project_id
+
+    # 1. Se for projeto com documentação ingerida
+    if ingested_dir.exists() and ingested_dir.is_dir():
+        # Se tiver caminho físico original acessível no host (para Git), tenta usar
+        path_str = proj.get("path", "")
+        if path_str:
+            valid_host, res_host, _ = scanner.is_valid_project_path(path_str)
+            if valid_host and res_host:
+                return True, res_host, None
+        return True, ingested_dir, None
+
+    # 2. Caminho configurado no disco
+    path_str = proj.get("path", "")
+    valid, res, err = scanner.is_valid_project_path(path_str)
+    if valid and res:
+        return valid, res, None
+
+    # 3. Fallback resolvido
+    if proj.get("resolved_path"):
+        valid_res, res_fallback, _ = scanner.is_valid_project_path(proj.get("resolved_path", ""))
+        if valid_res and res_fallback:
+            return valid_res, res_fallback, None
+
+    return valid, res, err
 
 
 def parse_markdown_note(file_path: Path) -> Dict[str, Any]:
@@ -194,13 +226,27 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             })
             return
 
+        # Descoberta de Projetos Locais/Montados: GET /api/projects/discover
+        if path == "/api/projects/discover":
+            candidates = scanner.discover_local_projects()
+            self.send_json(candidates)
+            return
+
+        # Navegador de Pastas: GET /api/system/browse?path=...
+        if path == "/api/system/browse":
+            query_params = parse_qs(parsed.query)
+            subpath = query_params.get("path", [""])[0]
+            result = scanner.browse_directory(subpath)
+            self.send_json(result)
+            return
+
         # Listar Projetos: GET /api/projects
         if path == "/api/projects":
             projects = load_projects()
             enriched = []
             for p in projects:
                 p_copy = dict(p)
-                valid, resolved_path, _ = scanner.is_valid_project_path(p.get("path", ""))
+                valid, resolved_path, _ = resolve_project_path(p)
                 p_copy["accessible"] = valid
                 if valid and resolved_path:
                     p_copy["git"] = scanner.get_git_telemetry(resolved_path)
@@ -220,7 +266,7 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             if not proj:
                 self.send_error_json("Projeto não encontrado", 404)
                 return
-            valid, resolved_path, err = scanner.is_valid_project_path(proj.get("path", ""))
+            valid, resolved_path, err = resolve_project_path(proj)
             if not valid or not resolved_path:
                 self.send_error_json(err or "Caminho do projeto inacessível", 400)
                 return
@@ -236,7 +282,7 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             if not proj:
                 self.send_error_json("Projeto não encontrado", 404)
                 return
-            valid, resolved_path, err = scanner.is_valid_project_path(proj.get("path", ""))
+            valid, resolved_path, err = resolve_project_path(proj)
             if not valid or not resolved_path:
                 self.send_error_json(err or "Caminho inacessível", 400)
                 return
@@ -277,10 +323,81 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error_json("Corpo da requisição JSON inválido", 400)
             return
 
+        # Ingestão de Pasta do Windows: POST /api/projects/ingest
+        if path == "/api/projects/ingest":
+            name = (body.get("name") or "").strip()
+            folder_name = (body.get("folder_name") or "").strip()
+            version = (body.get("version") or "v1.0.0").strip()
+            tags = body.get("tags", [])
+            docs = body.get("docs", {})
+            manifests = body.get("manifests", {})
+            raw_path = (body.get("path") or folder_name).strip()
+
+            if not name and not folder_name:
+                self.send_error_json("Nome da pasta ou do projeto é obrigatório.", 400)
+                return
+
+            if not name:
+                name = folder_name
+
+            projects = load_projects()
+            clean_id = re.sub(r"[^a-zA-Z0-9_-]", "-", name.lower()).strip("-")
+            project_id = clean_id or "project"
+            counter = 1
+            existing_ids = {p.get("id") for p in projects}
+            while project_id in existing_ids:
+                project_id = f"{clean_id}-{counter}"
+                counter += 1
+
+            # Grava documentos ingeridos no volume persistente
+            proj_ingested_dir = INGESTED_BASE_DIR / project_id
+            proj_ingested_dir.mkdir(parents=True, exist_ok=True)
+
+            for rel_file, content in docs.items():
+                if isinstance(content, str):
+                    target_file = proj_ingested_dir / rel_file.replace("\\", "/").lstrip("/")
+                    target_file.parent.mkdir(parents=True, exist_ok=True)
+                    target_file.write_text(content, encoding="utf-8")
+
+            # Cria marcadores de manifesto se identificados no browser
+            if manifests.get("has_dockerfile") and not (proj_ingested_dir / "Dockerfile").exists():
+                (proj_ingested_dir / "Dockerfile").touch()
+            if manifests.get("has_compose") and not (proj_ingested_dir / "docker-compose.yml").exists():
+                (proj_ingested_dir / "docker-compose.yml").touch()
+            if manifests.get("has_package_json") and not (proj_ingested_dir / "package.json").exists():
+                (proj_ingested_dir / "package.json").touch()
+            if manifests.get("has_pyproject") and not (proj_ingested_dir / "pyproject.toml").exists():
+                (proj_ingested_dir / "pyproject.toml").touch()
+            if manifests.get("has_prisma") and not (proj_ingested_dir / "schema.prisma").exists():
+                (proj_ingested_dir / "schema.prisma").touch()
+
+            # Tenta verificar se a pasta também existe no sistema de arquivos do container/host
+            valid_path, res_path, _ = scanner.is_valid_project_path(raw_path)
+            resolved_str = str(res_path) if valid_path and res_path else str(proj_ingested_dir)
+
+            new_proj = {
+                "id": project_id,
+                "name": name,
+                "folder_name": folder_name,
+                "path": raw_path,
+                "resolved_path": resolved_str,
+                "ingested": True,
+                "ingested_files_count": len(docs),
+                "current_version": version,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "tags": tags if isinstance(tags, list) else [],
+            }
+            projects.append(new_proj)
+            save_projects(projects)
+
+            (NOTES_BASE_DIR / project_id).mkdir(parents=True, exist_ok=True)
+            self.send_json(new_proj, 201)
+            return
+
         # Registrar Projeto: POST /api/projects
         if path == "/api/projects":
             name = (body.get("name") or "").strip()
-            raw_path = (body.get("path") or "").strip()
+            raw_path = scanner.sanitize_input_path(body.get("path") or "")
             tags = body.get("tags", [])
             version = (body.get("version") or "v1.0.0").strip()
 
@@ -305,7 +422,8 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             new_proj = {
                 "id": project_id,
                 "name": name,
-                "path": str(resolved_path),
+                "path": raw_path,
+                "resolved_path": str(resolved_path),
                 "current_version": version,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "tags": tags if isinstance(tags, list) else [],

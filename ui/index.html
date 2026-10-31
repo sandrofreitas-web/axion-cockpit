@@ -234,36 +234,79 @@
     </main>
   </div>
 
-  <!-- MODAL: Registrar Novo Projeto -->
+  <!-- MODAL: Ingestão de Projeto do Windows -->
   <div class="modal-overlay" id="modal-add-project" style="display: none;">
-    <div class="modal-card">
+    <div class="modal-card modal-large">
       <div class="modal-header">
-        <h2>Registrar Projeto no OS</h2>
+        <h2>Ingestão de Projeto do Windows</h2>
         <button class="close-btn" data-close-modal="modal-add-project">&times;</button>
       </div>
-      <form id="form-add-project">
-        <div class="form-group">
-          <label for="proj-input-path">Caminho Absoluto em Disco (*)</label>
-          <input type="text" id="proj-input-path" class="form-input" required placeholder="Ex: C:/Docker/meu-projeto ou /mnt/c/Docker/meu-projeto">
-          <span class="form-help">O OS validará se a pasta existe e lerá sua documentação sob demanda.</span>
+
+      <div class="ingest-modal-body">
+        <!-- Input nativo de pasta do Windows oculto -->
+        <input type="file" id="native-folder-picker" webkitdirectory directory multiple style="display: none;">
+
+        <!-- Área Principal de Seleção de Pasta do Windows -->
+        <div class="ingest-picker-zone" id="ingest-picker-zone">
+          <div class="picker-icon">📂</div>
+          <h3>Buscar Pasta do Windows</h3>
+          <p class="picker-desc">Abra o Windows Explorer e selecione a pasta de qualquer projeto no seu computador.</p>
+          <button type="button" class="btn btn-primary btn-lg" id="btn-trigger-picker">
+            🗂️ Selecionar Pasta no Windows...
+          </button>
         </div>
-        <div class="form-group">
-          <label for="proj-input-name">Nome Amigável do Projeto</label>
-          <input type="text" id="proj-input-name" class="form-input" placeholder="Opcional (se vazio, usa o nome da pasta)">
+
+        <!-- Painel de Feedback da Ingestão (aparece assim que a pasta for selecionada) -->
+        <div class="ingest-selected-card" id="ingest-selected-card" style="display: none;">
+          <div class="ingest-card-header">
+            <span class="badge-success">✓ Pasta Selecionada</span>
+            <button type="button" class="btn btn-xs btn-secondary" id="btn-change-folder">Trocar Pasta</button>
+          </div>
+          <div class="ingest-folder-info">
+            <span class="folder-big-icon">📁</span>
+            <div>
+              <h3 id="ingest-folder-name">Nome da Pasta</h3>
+              <span class="muted-text" id="ingest-docs-count">0 arquivos documentais encontrados</span>
+            </div>
+          </div>
+          <div class="ingest-docs-chips" id="ingest-docs-chips"></div>
         </div>
-        <div class="form-group">
-          <label for="proj-input-version">Versão Inicial</label>
-          <input type="text" id="proj-input-version" class="form-input" value="v1.0.0">
-        </div>
-        <div class="form-group">
-          <label for="proj-input-tags">Tags (separadas por vírgula)</label>
-          <input type="text" id="proj-input-tags" class="form-input" placeholder="backend, python, docker">
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-close-modal="modal-add-project">Cancelar</button>
-          <button type="submit" class="btn btn-primary">Registrar Projeto</button>
-        </div>
-      </form>
+
+        <form id="form-add-project">
+          <input type="hidden" id="proj-folder-name">
+          <div class="form-group" style="margin-top: 16px;">
+            <label for="proj-input-name">Nome do Projeto (*)</label>
+            <input type="text" id="proj-input-name" class="form-input" required placeholder="Ex: Meu Projeto">
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="proj-input-version">Versão Inicial</label>
+              <input type="text" id="proj-input-version" class="form-input" value="v1.0.0">
+            </div>
+            <div class="form-group flex-2">
+              <label for="proj-input-tags">Tags (separadas por vírgula)</label>
+              <input type="text" id="proj-input-tags" class="form-input" placeholder="backend, python, docker">
+            </div>
+          </div>
+
+          <!-- Opção secundária para atalhos do container ou caminho manual -->
+          <details class="manual-path-details" style="margin-top: 12px;">
+            <summary style="font-size: 11px; color: var(--text-muted); cursor: pointer; user-select: none;">Opções avançadas (caminho manual / atalhos montados)</summary>
+            <div class="form-group" style="margin-top: 8px;">
+              <input type="text" id="proj-input-path" class="form-input" placeholder="Opcional: C:\Docker\meu-projeto ou meu-projeto">
+              <div id="discovered-projects-chips" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;"></div>
+            </div>
+          </details>
+
+          <div class="modal-footer" style="margin-top: 20px;">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-add-project">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-ingest" disabled>
+              ⚡ Concluir Ingestão do Projeto
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 
@@ -336,6 +379,31 @@
           <button type="submit" class="btn btn-primary">Homologar Versão</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Visualizador de Diagramas em Tela Cheia -->
+  <div class="modal-overlay" id="modal-diagram-fullscreen" style="display: none; z-index: 1050;">
+    <div class="modal-card modal-fullscreen">
+      <div class="modal-header">
+        <div class="modal-header-title" style="display: flex; align-items: center; gap: 8px;">
+          <span class="diagram-type-pill" id="fs-diagram-type">flowchart</span>
+          <h2 id="fs-diagram-title" style="margin: 0; font-size: 14px;">Visualizador de Diagrama</h2>
+          <span class="source-file" id="fs-diagram-source" style="font-size: 11px;"></span>
+        </div>
+        <div class="diagram-toolbar-controls">
+          <button type="button" class="diagram-tool-btn" id="btn-fs-zoom-out" title="Diminuir Zoom">🔍−</button>
+          <span class="zoom-level-badge" id="fs-zoom-badge">100%</span>
+          <button type="button" class="diagram-tool-btn" id="btn-fs-zoom-in" title="Aumentar Zoom">🔍+</button>
+          <button type="button" class="diagram-tool-btn" id="btn-fs-zoom-reset" title="Ajustar ao tamanho">Ajustar</button>
+          <button type="button" class="diagram-tool-btn" id="btn-fs-copy-code" title="Copiar código Mermaid">📋 Copiar</button>
+          <button class="close-btn" data-close-modal="modal-diagram-fullscreen">&times;</button>
+        </div>
+      </div>
+      <div class="diagram-viewport fullscreen-viewport" id="fs-diagram-viewport">
+        <div class="diagram-canvas" id="fs-diagram-canvas"></div>
+        <div class="diagram-viewport-hint">Arraste para mover • Scroll para zoom • Duplo clique para ajustar</div>
+      </div>
     </div>
   </div>
 
