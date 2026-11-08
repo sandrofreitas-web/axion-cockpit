@@ -15,5 +15,7 @@ venv/
 .obsidian/
 skills-library/
 data/ingested/
+data/vault/*
+!data/vault/.gitkeep
 
 

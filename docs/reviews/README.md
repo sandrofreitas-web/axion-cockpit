@@ -19,7 +19,8 @@ Este diretório preserva a trilha histórica e deliberativa das revisões arquit
 
 ---
 
-## Documento Canônico Resultante
+## Documentos Canônicos Resultantes
 
-Todas as deliberações e correções acima foram consolidadas no documento formal aprovado:
-* [docs/designs/local_project_os.md](file:///C:/Docker/axion-cockpit/docs/designs/local_project_os.md)
+Todas as deliberações e correções acima foram consolidadas nos documentos formais aprovados:
+* [docs/designs/local_project_os.md](file:///C:/Docker/axion-cockpit/docs/designs/local_project_os.md) — Design do Local Project OS e Desacoplamento de Notas
+* [docs/designs/infra_and_subsystems_catalog.md](file:///C:/Docker/axion-cockpit/docs/designs/infra_and_subsystems_catalog.md) — Design do Catálogo de Infraestrutura e Radar de Colisão de Portas

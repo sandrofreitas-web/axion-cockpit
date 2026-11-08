@@ -163,6 +163,8 @@ const activePanZooms = new Map();
 let fullscreenPanZoom = null;
 
 const state = {
+  currentDomain: 'projects',
+  infraData: null,
   projects: [],
   selectedProjectId: null,
   selectedProjectData: null,
@@ -179,6 +181,26 @@ const state = {
 // DOM Elements
 // =============================================================================
 const elements = {
+  // Domain Switcher & Infra Elements
+  domainBtns: document.querySelectorAll('.domain-btn'),
+  viewInfra: document.getElementById('view-infra'),
+  sidebar: document.querySelector('.sidebar'),
+  btnRefreshInfra: document.getElementById('btn-refresh-infra'),
+  btnConfigVault: document.getElementById('btn-config-vault'),
+  modalConfigVault: document.getElementById('modal-config-vault'),
+  formConfigVault: document.getElementById('form-config-vault'),
+  inputVaultPath: document.getElementById('input-vault-path'),
+  infraVaultPath: document.getElementById('infra-vault-path'),
+  infraRadarBanner: document.getElementById('infra-radar-banner'),
+  radarTitle: document.getElementById('radar-title'),
+  radarConflictsList: document.getElementById('radar-conflicts-list'),
+  infraMetricsContainer: document.getElementById('infra-metrics-container'),
+  distTypesBars: document.getElementById('dist-types-bars'),
+  distOsBars: document.getElementById('dist-os-bars'),
+  distEntityBars: document.getElementById('dist-entity-bars'),
+  portMatrixBody: document.getElementById('port-matrix-body'),
+  infraDeckContainer: document.getElementById('infra-deck-container'),
+
   projectList: document.getElementById('project-list-container'),
   projectSearch: document.getElementById('project-search-input'),
   viewEmpty: document.getElementById('view-empty'),
@@ -252,6 +274,25 @@ const elements = {
 // API Service Calls
 // =============================================================================
 const api = {
+  async getInfraCatalog(forceRefresh = false) {
+    const q = forceRefresh ? '?force_refresh=true' : '';
+    const res = await fetch(`/api/infra${q}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Falha ao carregar catálogo de infraestrutura');
+    return data;
+  },
+
+  async saveVaultConfig(vaultPath) {
+    const res = await fetch('/api/infra/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vault_path: vaultPath })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Falha ao salvar configuração do vault');
+    return data;
+  },
+
   async getProjects() {
     const res = await fetch('/api/projects');
     if (!res.ok) throw new Error('Falha ao listar projetos');
@@ -1236,6 +1277,267 @@ function setupEvents() {
       alert('Erro ao remover projeto: ' + err.message);
     }
   });
+
+  // Alternador de Domínio: Projetos vs Infraestrutura Global
+  elements.domainBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetDomain = btn.getAttribute('data-domain');
+      switchDomain(targetDomain);
+    });
+  });
+
+  // Botão de Atualização do Catálogo de Infraestrutura (Force Refresh)
+  if (elements.btnRefreshInfra) {
+    elements.btnRefreshInfra.addEventListener('click', () => {
+      loadInfraCatalog(true);
+    });
+  }
+
+  // Modal Configurar Vault
+  if (elements.btnConfigVault && elements.modalConfigVault) {
+    elements.btnConfigVault.addEventListener('click', () => {
+      elements.modalConfigVault.style.display = 'flex';
+      if (elements.inputVaultPath && state.infraData && state.infraData.vault_path) {
+        elements.inputVaultPath.value = state.infraData.vault_path;
+      }
+    });
+  }
+
+  if (elements.formConfigVault) {
+    elements.formConfigVault.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const newPath = elements.inputVaultPath.value.trim();
+      if (!newPath) return;
+      try {
+        await api.saveVaultConfig(newPath);
+        elements.modalConfigVault.style.display = 'none';
+        await loadInfraCatalog(true);
+      } catch (err) {
+        alert('Erro ao salvar configuração do vault: ' + err.message);
+      }
+    });
+  }
+}
+
+// =============================================================================
+// Infra Controller & Renderers
+// =============================================================================
+
+async function switchDomain(domain) {
+  state.currentDomain = domain;
+  elements.domainBtns.forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-domain') === domain);
+  });
+
+  if (domain === 'infra') {
+    elements.sidebar.style.display = 'none';
+    elements.viewEmpty.style.display = 'none';
+    elements.viewProject.style.display = 'none';
+    elements.viewInfra.classList.remove('hidden');
+    elements.breadcrumb.innerHTML = `<span class="crumb-root">INFRAESTRUTURA GLOBAL</span> / <span class="crumb-current">CATÁLOGO &amp; SUBSISTEMAS</span>`;
+    await loadInfraCatalog();
+  } else {
+    elements.sidebar.style.display = 'flex';
+    elements.viewInfra.classList.add('hidden');
+    if (state.selectedProjectId) {
+      selectProject(state.selectedProjectId);
+    } else {
+      elements.viewEmpty.style.display = 'block';
+      elements.breadcrumb.textContent = 'Nenhum projeto selecionado';
+    }
+  }
+}
+
+async function loadInfraCatalog(forceRefresh = false) {
+  if (!elements.infraDeckContainer) return;
+  elements.infraDeckContainer.innerHTML = '<div class="loading-state">Carregando catálogo de infraestrutura sob demanda...</div>';
+  try {
+    const data = await api.getInfraCatalog(forceRefresh);
+    state.infraData = data;
+    renderInfraDashboard(data);
+  } catch (err) {
+    elements.infraDeckContainer.innerHTML = `<div class="error-box">Erro ao carregar infraestrutura: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderInfraDashboard(data) {
+  if (elements.infraVaultPath) {
+    elements.infraVaultPath.textContent = data.vault_path ? `Cofre: ${data.vault_path}` : 'Cofre: Não configurado';
+  }
+  if (elements.inputVaultPath && data.vault_path) {
+    elements.inputVaultPath.value = data.vault_path;
+  }
+
+  // 1. Radar de Conflito de Portas
+  const ports = data.ports || { bindings: [], collision_count: 0, collisions: [] };
+  if (elements.infraRadarBanner && elements.radarTitle && elements.radarConflictsList) {
+    if (ports.collision_count > 0) {
+      elements.infraRadarBanner.classList.remove('hidden');
+      elements.radarTitle.textContent = `⚠️ Radar de Conflitos: ${ports.collision_count} porta(s) em colisão identificada(s)`;
+      elements.radarConflictsList.innerHTML = ports.collisions.map(c => `
+        <div class="radar-item">
+          <span class="port-tag">:${c.host_port}</span>
+          <span>Conflito entre ${c.collision_count} origens: <strong>${escapeHtml(c.conflicting_sources.join(' ↔ '))}</strong></span>
+        </div>
+      `).join('');
+    } else {
+      elements.infraRadarBanner.classList.add('hidden');
+    }
+  }
+
+  // 2. Métricas Rápidas
+  const totalHosts = data.resources ? data.resources.length : 0;
+  const totalPorts = ports.bindings ? ports.bindings.length : 0;
+  const collisionCount = ports.collision_count || 0;
+  const entitiesCount = Object.keys((data.metrics && data.metrics.by_entity) || {}).length;
+
+  if (elements.infraMetricsContainer) {
+    elements.infraMetricsContainer.innerHTML = `
+      <div class="infra-metric-card">
+        <span class="label">Hosts Registrados</span>
+        <span class="value">${totalHosts}</span>
+        <span class="sub">Fichas declarativas no vault</span>
+      </div>
+      <div class="infra-metric-card">
+        <span class="label">Portas Mapeadas</span>
+        <span class="value">${totalPorts}</span>
+        <span class="sub">Hosts e contêineres locais</span>
+      </div>
+      <div class="infra-metric-card">
+        <span class="label">Conflitos de Porta</span>
+        <span class="value" style="color: ${collisionCount > 0 ? 'var(--accent-yellow)' : 'var(--accent-green)'};">${collisionCount}</span>
+        <span class="sub">${collisionCount > 0 ? 'Duplicidades ativas detectadas' : 'Nenhuma colisão'}</span>
+      </div>
+      <div class="infra-metric-card">
+        <span class="label">Entidades / Unidades</span>
+        <span class="value">${entitiesCount}</span>
+        <span class="sub">Ambientes categorizados</span>
+      </div>
+    `;
+  }
+
+  // 3. Barras de Distribuição
+  if (data.metrics) {
+    renderDistributionBars(elements.distTypesBars, data.metrics.by_type || {}, totalHosts);
+    renderDistributionBars(elements.distOsBars, data.metrics.by_os || {}, totalHosts);
+    renderDistributionBars(elements.distEntityBars, data.metrics.by_entity || {}, totalHosts);
+  }
+
+  // 4. Matriz de Portas
+  if (elements.portMatrixBody) {
+    if (!ports.bindings || ports.bindings.length === 0) {
+      elements.portMatrixBody.innerHTML = '<tr><td colspan="4" class="muted-text">Nenhuma porta declarada encontrada.</td></tr>';
+    } else {
+      elements.portMatrixBody.innerHTML = ports.bindings.map(b => {
+        const isCol = b.is_collision;
+        const statusBadge = isCol 
+          ? `<span class="conflict-pill">⚠️ Conflito (${b.collision_count})</span>` 
+          : `<span class="ok-pill">✓ Disponível</span>`;
+        const sourcesText = b.source_labels ? b.source_labels.join(', ') : '';
+        const types = Array.from(new Set((b.sources || []).map(s => s.source_type === 'infra_vault' ? 'Vault Host' : 'Compose'))).join(' + ');
+
+        return `
+          <tr class="${isCol ? 'row-conflict' : ''}">
+            <td><span class="port-number-badge">:${b.host_port}</span></td>
+            <td><strong>${escapeHtml(sourcesText)}</strong></td>
+            <td><span class="tag-pill">${escapeHtml(types)}</span></td>
+            <td>${statusBadge}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  // 5. Deck de Cards de Hosts
+  if (!elements.infraDeckContainer) return;
+  if (!data.resources || data.resources.length === 0) {
+    elements.infraDeckContainer.innerHTML = '<div class="empty-list-notice">Nenhum host encontrado no cofre de infraestrutura.</div>';
+    return;
+  }
+
+  elements.infraDeckContainer.innerHTML = data.resources.map(res => {
+    const servicesHtml = (res.servicos_ativos || []).map(s => {
+      const hasPort = /:\d+/.test(s);
+      return `<span class="service-pill ${hasPort ? 'has-port' : ''}">${escapeHtml(s)}</span>`;
+    }).join('');
+
+    const tagsHtml = (res.tags || []).map(t => `<span class="infra-tag">${escapeHtml(t)}</span>`).join('');
+
+    return `
+      <div class="infra-card" id="host-${escapeHtml(res.id)}">
+        <div class="infra-card-header">
+          <div>
+            <div class="infra-card-title">${escapeHtml(res.recurso)}</div>
+            <div class="infra-card-meta">
+              <span class="tag-pill" style="color: var(--accent-blue);">${escapeHtml(res.tipo)}</span>
+              <span class="tag-pill">${escapeHtml(res.entidade)}</span>
+              <span class="tag-pill">${escapeHtml(res.os)}</span>
+            </div>
+          </div>
+          <span class="badge-declarative" style="border-color: rgba(59, 130, 246, 0.4);">${escapeHtml(res.status)}</span>
+        </div>
+
+        <div class="infra-card-host-box">
+          <span class="host-ip">🌐 ${escapeHtml(res.host || 'Sem IP')}</span>
+          ${res.host ? `<button class="btn-copy-ip" data-copy="${escapeHtml(res.host)}" title="Copiar IP">Copiar</button>` : ''}
+        </div>
+
+        ${res.hardware ? `<div class="infra-subtitle" style="font-size: 11px;">💻 Hardware: ${escapeHtml(res.hardware)}</div>` : ''}
+
+        <div class="infra-card-services">
+          <div class="services-label">Serviços Declarados &amp; Portas:</div>
+          <div class="services-chips">
+            ${servicesHtml || '<span class="muted-text" style="font-size: 11px;">Nenhum serviço listado</span>'}
+          </div>
+        </div>
+
+        ${tagsHtml ? `<div style="display: flex; gap: 4px; margin-top: 4px;">${tagsHtml}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  // Botões de cópia de IP
+  elements.infraDeckContainer.querySelectorAll('.btn-copy-ip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const val = btn.getAttribute('data-copy');
+      navigator.clipboard.writeText(val).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = '✓ Copiado';
+        btn.style.borderColor = 'var(--accent-green)';
+        btn.style.color = 'var(--accent-green)';
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.style.borderColor = '';
+          btn.style.color = '';
+        }, 1500);
+      });
+    });
+  });
+}
+
+function renderDistributionBars(containerEl, dataObj, total) {
+  if (!containerEl) return;
+  const keys = Object.keys(dataObj);
+  if (keys.length === 0 || total === 0) {
+    containerEl.innerHTML = '<span class="muted-text" style="font-size: 11px;">Sem dados</span>';
+    return;
+  }
+
+  containerEl.innerHTML = keys.map(k => {
+    const count = dataObj[k];
+    const pct = Math.round((count / total) * 100);
+    return `
+      <div class="dist-bar-item">
+        <div class="dist-bar-meta">
+          <span>${escapeHtml(k)}</span>
+          <span>${count} (${pct}%)</span>
+        </div>
+        <div class="dist-bar-track">
+          <div class="dist-bar-fill" style="width: ${pct}%;"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 // =============================================================================

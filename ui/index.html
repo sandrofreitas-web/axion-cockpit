@@ -22,6 +22,11 @@
         <span class="brand-chip">OPERATIONS COCKPIT</span>
       </div>
       <div class="topbar-divider"></div>
+      <div class="nav-domains">
+        <button class="domain-btn active" data-domain="projects">📦 Projetos Locais</button>
+        <button class="domain-btn" data-domain="infra">🌐 Infraestrutura Global</button>
+      </div>
+      <div class="topbar-divider"></div>
       <div class="topbar-breadcrumb">
         <span class="crumb-root">LOCAL FLEET</span>
         <span class="crumb-sep">/</span>
@@ -231,6 +236,91 @@
           </div>
         </div>
       </section>
+
+      <!-- Global Infrastructure & Subsystems View -->
+      <section class="infra-view hidden" id="view-infra">
+        <div class="infra-header-card">
+          <div class="infra-header-left">
+            <div class="title-row">
+              <h2>🌐 Infraestrutura Global & Subsistemas</h2>
+              <span class="badge-declarative">Catálogo Declarativo (Passivo)</span>
+            </div>
+            <p class="infra-subtitle mono-text" id="infra-vault-path">Cofre: Carregando...</p>
+          </div>
+          <div class="infra-header-actions">
+            <button class="btn btn-secondary btn-sm" id="btn-refresh-infra" title="Recarregar do Disco">
+              ↻ Recarregar (30s TTL)
+            </button>
+            <button class="btn btn-outline btn-sm" id="btn-config-vault">
+              ⚙️ Configurar Vault
+            </button>
+          </div>
+        </div>
+
+        <!-- Alerta de Colisão de Portas -->
+        <div class="port-radar-banner hidden" id="infra-radar-banner">
+          <div class="radar-icon">⚠️</div>
+          <div class="radar-content">
+            <h4 id="radar-title">Radar de Conflitos: 0 colisões detectadas</h4>
+            <div class="radar-list" id="radar-conflicts-list"></div>
+          </div>
+        </div>
+
+        <!-- Linha de Métricas Rápidas -->
+        <div class="infra-metrics-row" id="infra-metrics-container">
+          <!-- Gerado via JS: Total Hosts, Portas Ativas, Colisões, Ambientes -->
+        </div>
+
+        <!-- Gráficos de Distribuição (CSS Flexbox nativo) -->
+        <div class="infra-distribution-grid">
+          <div class="dist-card">
+            <div class="dist-header">
+              <span class="dist-icon">🖥️</span> Distribuição por Tipo de Host
+            </div>
+            <div class="dist-bars" id="dist-types-bars"></div>
+          </div>
+          <div class="dist-card">
+            <div class="dist-header">
+              <span class="dist-icon">🐧</span> Distribuição por Sistema Operacional
+            </div>
+            <div class="dist-bars" id="dist-os-bars"></div>
+          </div>
+          <div class="dist-card">
+            <div class="dist-header">
+              <span class="dist-icon">🏢</span> Distribuição por Entidade / Unidade
+            </div>
+            <div class="dist-bars" id="dist-entity-bars"></div>
+          </div>
+        </div>
+
+        <!-- Matriz de Portas Declaradas vs Projetos -->
+        <div class="infra-section-title">
+          <span>⚡ MATRIZ DE PORTAS DE REDE (HOST / CONTÊINER)</span>
+        </div>
+        <div class="port-matrix-wrapper">
+          <table class="port-matrix-table" id="port-matrix-table">
+            <thead>
+              <tr>
+                <th style="width: 120px;">Porta Host</th>
+                <th>Serviços / Projetos Vinculados</th>
+                <th>Origem</th>
+                <th style="width: 140px;">Status</th>
+              </tr>
+            </thead>
+            <tbody id="port-matrix-body">
+              <tr><td colspan="4" class="muted-text">Carregando portas...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Deck Grid de Hosts -->
+        <div class="infra-section-title">
+          <span>📦 CATÁLOGO DE HOSTS & SERVIDORES CADASTRADOS</span>
+        </div>
+        <div class="infra-deck-grid" id="infra-deck-container">
+          <!-- Cards gerados via JS -->
+        </div>
+      </section>
     </main>
   </div>
 
@@ -404,6 +494,27 @@
         <div class="diagram-canvas" id="fs-diagram-canvas"></div>
         <div class="diagram-viewport-hint">Arraste para mover • Scroll para zoom • Duplo clique para ajustar</div>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Configurar Vault de Infraestrutura -->
+  <div class="modal-overlay" id="modal-config-vault" style="display: none; z-index: 1040;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Configurar Vault de Infraestrutura</h2>
+        <button class="close-btn" data-close-modal="modal-config-vault">&times;</button>
+      </div>
+      <form id="form-config-vault">
+        <div class="form-group" style="margin-top: 16px;">
+          <label for="input-vault-path">Caminho da Pasta de Recursos (*)</label>
+          <input type="text" id="input-vault-path" class="form-input" required placeholder="Ex: G:\Meu Drive\main_vault\02_Recursos_e_Infra ou /vault">
+          <span class="form-help">Caminho gravado em <code>data/config.json</code> e validado no disco.</span>
+        </div>
+        <div class="modal-footer" style="margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-config-vault">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-vault">Salvar e Recarregar</button>
+        </div>
+      </form>
     </div>
   </div>
 

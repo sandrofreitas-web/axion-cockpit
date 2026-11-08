@@ -6,6 +6,8 @@ Ele opera sob o **Princípio do Observador Passivo**:
 - **Zero Dependências Externas**: Executa 100% na biblioteca padrão do Python (`http.server` e `socketserver`). Não exige `pip install`, FastAPI ou virtualenvs.
 - **Modelo de Ingestão Simplificado**: Suporta seleção direta de pastas do Windows Explorer pelo navegador ou caminhos do host, com ingestão instantânea de arquivos Markdown e manifestos sem depender de pontos rígidos de montagem.
 - **Zero Drift (On-Demand)**: Não duplica dados nem persiste caches de documentação desatualizados. Lê os arquivos técnicos sob demanda diretamente do disco em tempo real.
+- **Catálogo Passivo de Infraestrutura & Subsistemas**: Mapeia declarativamente hosts físicos, máquinas virtuais, instâncias cloud e serviços a partir de fichas no Obsidian Vault (`02_Recursos_e_Infra/*.md`).
+- **Radar de Conflito de Portas**: Cruza automaticamente portas declaradas nos hosts e mapeamentos de portas em manifestos `docker-compose.yml` dos projetos cadastrados, alertando colisões em tempo real.
 - **Renderização Visual Interativa (Mermaid.js)**: Diagramas renderizados em tamanho natural legível, com suporte nativo a Pan (arrastar com o mouse), Zoom contínuo (30% a 350%), roda do mouse (Wheel), ajuste automático e Modo Tela Cheia dedicado.
 - **Ledger de Melhorias Desacoplado**: Permite registrar ideias, débitos técnicos e notas de revisão por projeto em arquivos Markdown locais, sem poluir a árvore de commits do repositório monitorado até a homologação da versão.
 - **Pronto para Docker**: Disponível como imagem contêinerizada enxuta baseada em `python:3.12-slim` com Docker Compose e suporte nativo a volumes.
@@ -59,6 +61,8 @@ Abra o navegador em: **`http://127.0.0.1:4100`**
 axion-cockpit/
 ├── data/                                  # Persistência em arquivos planos
 │   ├── projects.json                      # Registro central da frota de projetos locais
+│   ├── config.json                        # Configurações do console (ex: vault_path)
+│   ├── vault/                             # Ponto de montagem/cópia do Obsidian Vault
 │   ├── ingested/                          # Documentações ingeridas via upload/seletor
 │   └── notes/                             # Notas de melhoria individuais por projeto
 │       └── {project_id}/                  # Arquivos .md com frontmatter
@@ -69,7 +73,8 @@ axion-cockpit/
 │   ├── DOCKER.md                          # Guia detalhado de Docker e Compose
 │   ├── DEVELOPMENT.md                     # Guia de desenvolvimento e testes
 │   ├── designs/                           # Documentos formais de design técnico
-│   │   └── local_project_os.md            # Design aprovado pós-auditoria
+│   │   ├── local_project_os.md            # Design aprovado do Project OS
+│   │   └── infra_and_subsystems_catalog.md# Design aprovado do Catálogo de Infra
 │   └── reviews/                           # Trilha histórica de auditorias (EGM Swarm)
 │       └── README.md                      # Sumário das revisões multi-lente
 ├── templates/
@@ -77,13 +82,15 @@ axion-cockpit/
 │       ├── ARCHITECTURE.template.md       # Template de arquitetura, techspec e diagramas
 │       └── NOTE.template.md               # Template de nota de melhoria com frontmatter
 ├── tests/
-│   └── test_server.py                     # Suíte de testes automatizados unitários
+│   ├── test_server.py                     # Testes do servidor HTTP e scanner de projetos
+│   └── test_infra_scanner.py              # Testes do scanner de infra e matriz de portas
 ├── ui/
-│   ├── app.py                             # Servidor HTTP/REST nativo (Python Stdlib)
+│   ├── app.py                             # Servidor HTTP/REST nativo (ThreadingTCPServer)
 │   ├── scanner.py                         # Scanner passivo, telemetria Git e extração Mermaid
+│   ├── infra_scanner.py                   # Parser YAML stdlib, matriz de portas e leitor de vault
 │   ├── index.html                         # Interface SPA do dashboard (Axion Cockpit)
 │   └── static/
-│       ├── app.js                         # Controladores frontend e renderizador Mermaid
+│       ├── app.js                         # Controladores frontend, radar de portas e Mermaid
 │       └── styles.css                     # Design system dark cockpit
 ├── Dockerfile                             # Build da imagem Docker (python:3.12-slim)
 ├── docker-compose.yml                     # Orquestração do serviço (axion-cockpit)
@@ -100,7 +107,8 @@ Para aprofundar-se em cada aspecto do Axion Cockpit, consulte a documentação e
 * 🔌 **[docs/API.md](file:///C:/Docker/axion-cockpit/docs/API.md)**: Especificação completa de todos os endpoints REST, formatos de requisição e respostas.
 * 🐳 **[docs/DOCKER.md](file:///C:/Docker/axion-cockpit/docs/DOCKER.md)**: Manual de containerização, volumes para projetos do host, variáveis de ambiente e healthcheck.
 * 💻 **[docs/DEVELOPMENT.md](file:///C:/Docker/axion-cockpit/docs/DEVELOPMENT.md)**: Guia do desenvolvedor, execução de testes unitários e padrões de código.
-* 🎯 **[docs/designs/local_project_os.md](file:///C:/Docker/axion-cockpit/docs/designs/local_project_os.md)**: Documento canônico de design técnico aprovado.
+* 🎯 **[docs/designs/local_project_os.md](file:///C:/Docker/axion-cockpit/docs/designs/local_project_os.md)**: Documento canônico de design técnico do Project OS.
+* 🌐 **[docs/designs/infra_and_subsystems_catalog.md](file:///C:/Docker/axion-cockpit/docs/designs/infra_and_subsystems_catalog.md)**: Documento canônico de design do Catálogo de Infraestrutura e Radar de Portas.
 * 📜 **[docs/reviews/README.md](file:///C:/Docker/axion-cockpit/docs/reviews/README.md)**: Trilha histórica de revisões arquiteturais e auditorias do EGM Swarm.
 
 ---

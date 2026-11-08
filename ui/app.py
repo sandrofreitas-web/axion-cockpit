@@ -30,6 +30,7 @@ UI_ROOT = Path(__file__).resolve().parent
 LIBRARY_ROOT = UI_ROOT.parent
 DATA_DIR = LIBRARY_ROOT / "data"
 PROJECTS_FILE = DATA_DIR / "projects.json"
+CONFIG_FILE = DATA_DIR / "config.json"
 NOTES_BASE_DIR = DATA_DIR / "notes"
 INGESTED_BASE_DIR = DATA_DIR / "ingested"
 
@@ -41,14 +42,29 @@ INGESTED_BASE_DIR.mkdir(parents=True, exist_ok=True)
 if not PROJECTS_FILE.exists():
     PROJECTS_FILE.write_text("[]", encoding="utf-8")
 
-# Adiciona UI_ROOT ao sys.path para importar scanner
+# Adiciona UI_ROOT ao sys.path para importar scanner e infra_scanner
 sys.path.insert(0, str(UI_ROOT))
 import scanner
+import infra_scanner
 
 
 # ==============================================================================
 # Funções Utilitárias de Armazenamento e Notas
 # ==============================================================================
+
+def load_config() -> Dict[str, Any]:
+    if not CONFIG_FILE.exists():
+        return {}
+    try:
+        return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_config(cfg: Dict[str, Any]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+
 
 def load_projects() -> List[Dict[str, Any]]:
     if not PROJECTS_FILE.exists():
@@ -258,6 +274,14 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(enriched)
             return
 
+        # Catálogo de Infraestrutura e Subsistemas: GET /api/infra
+        if path == "/api/infra":
+            query = parse_qs(parsed.query)
+            force_refresh = query.get("force_refresh", ["false"])[0].lower() == "true"
+            catalog = infra_scanner.get_infrastructure_catalog(force_refresh=force_refresh)
+            self.send_json(catalog)
+            return
+
         # Documentos e Diagramas: GET /api/projects/{id}/docs
         m_docs = re.match(r"^/api/projects/([^/]+)/docs$", path)
         if m_docs:
@@ -436,6 +460,26 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(new_proj, 201)
             return
 
+        # Configurar Vault de Infraestrutura: POST /api/infra/config
+        if path == "/api/infra/config":
+            vault_path_raw = body.get("vault_path")
+            if not vault_path_raw or not isinstance(vault_path_raw, str):
+                self.send_error_json("Chave 'vault_path' é obrigatória.", 400)
+                return
+
+            clean_path = scanner.sanitize_input_path(vault_path_raw)
+            resolved = scanner.resolve_cross_platform_path(clean_path)
+            if not resolved or not resolved.exists() or not resolved.is_dir():
+                self.send_error_json("O caminho informado não existe ou não é um diretório válido.", 400)
+                return
+
+            cfg = load_config()
+            cfg["vault_path"] = str(resolved)
+            save_config(cfg)
+            infra_scanner.invalidate_cache()
+            self.send_json({"status": "ok", "vault_path": str(resolved)})
+            return
+
         # Criar Nota: POST /api/projects/{id}/notes
         m_add_note = re.match(r"^/api/projects/([^/]+)/notes$", path)
         if m_add_note:
@@ -592,8 +636,8 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
 # ==============================================================================
 
 def run_server(port: int = 4100, host: str = "127.0.0.1") -> None:
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer((host, port), ProjectOSHandler) as httpd:
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
+    with socketserver.ThreadingTCPServer((host, port), ProjectOSHandler) as httpd:
         print(f"============================================================")
         print(f"  Axion Cockpit — Console Operacional e Visual de Projetos")
         print(f"  URL Local: http://{host}:{port}")

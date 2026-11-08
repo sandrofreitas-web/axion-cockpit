@@ -30,37 +30,46 @@ Este documento formaliza a arquitetura do sistema, seus fluxos de trabalho e seu
 flowchart TD
     subgraph Host ["Ambiente do Usuário / Host OS"]
         TerminalCLI["Terminal / Agente CLI (ex: Orca)"]
-        ProjectsDir["Projetos em Disco (Git Repos, docs, código)"]
+        ProjectsDir["Projetos em Disco (Git Repos, docs, código, compose)"]
+        VaultDir["Knowledge Vault (02_Recursos_e_Infra/*.md)"]
     end
 
     subgraph Axion_Container ["Axion Cockpit (Container Docker / Processo Local)"]
         subgraph WebClient ["Dashboard Web (Porta 4100)"]
+            TopbarDomains["Alternador de Domínio (Projetos / Infra)"]
             SPA["SPA Dark Cockpit (HTML5 / Vanilla JS)"]
             MermaidEngine["Engine Mermaid.js (Client-side Zoom/Pan)"]
             KanbanNotes["Quadro de Notas & Versão"]
+            InfraDeck["Deck de Hosts & Radar de Portas"]
         end
 
         subgraph CoreBackend ["Backend (ui/app.py)"]
             RESTServer["HTTP REST Server (http.server)"]
             ScannerEngine["Motor de Scanner Passivo (ui/scanner.py)"]
+            InfraEngine["Scanner de Infra & Subsistemas (ui/infra_scanner.py)"]
             GitTelemetry["Telemetria Git (subprocess 'git')"]
             SecurityGuard["Guarda de Caminhos (Anti-Path Traversal)"]
         end
 
         subgraph Storage ["Persistência Local (data/)"]
             ProjectsDB[("projects.json")]
+            ConfigDB[("config.json")]
             NotesStorage[("notes/{project_id}/*.md")]
         end
     end
 
     TerminalCLI -.->|"Implementa alterações"| ProjectsDir
     ProjectsDir <---|Leitura passiva on-demand| ScannerEngine
+    ProjectsDir <---|Portas docker-compose| InfraEngine
+    VaultDir <---|Fichas declarativas Markdown/YAML| InfraEngine
     ProjectsDir <---|Status e branches| GitTelemetry
     SPA <-->|"HTTP / JSON REST API"| RESTServer
     RESTServer --> ScannerEngine
+    RESTServer --> InfraEngine
     RESTServer --> GitTelemetry
     RESTServer --> SecurityGuard
     RESTServer <--> ProjectsDB
+    RESTServer <--> ConfigDB
     RESTServer <--> NotesStorage
 ```
 

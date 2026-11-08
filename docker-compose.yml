@@ -19,6 +19,8 @@ services:
       # Volume para inspeção de projetos do host no Linux/WSL/Docker
       # Mapeia o diretório pai ou diretório de projetos para que o scanner leia documentos locais
       - ${PROJECTS_HOST_DIR:-..}:/projects:ro
+      # Volume opcional para leitura passiva de fichas do vault de infraestrutura
+      - "${AXION_VAULT_HOST_DIR:-G:/Meu Drive/main_vault/02_Recursos_e_Infra}:/vault:ro"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4100/api/projects').read()\""]
       interval: 30s

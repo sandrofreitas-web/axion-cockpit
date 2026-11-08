@@ -23,19 +23,21 @@ Este guia detalha o fluxo de desenvolvimento, arquitetura de código, convençõ
 ```
 axion-cockpit/
 ├── ui/
-│   ├── app.py             # Servidor HTTP nativo, roteador REST e CRUD de notas
-│   ├── scanner.py         # Scanner passivo, validação de segurança e extração de Mermaid
-│   ├── index.html         # Single Page Application (Dark Cockpit)
+│   ├── app.py                 # Servidor HTTP nativo (ThreadingTCPServer), roteador REST e CRUD
+│   ├── scanner.py             # Scanner passivo de projetos locais, Git e extração Mermaid
+│   ├── infra_scanner.py       # Leitor de fichas declarativas no vault e colisão de portas
+│   ├── index.html             # Single Page Application (Dark Cockpit)
 │   └── static/
-│       ├── app.js         # Lógica frontend, chamadas assíncronas à API e renderização Mermaid
-│       └── styles.css     # Estilos visuais e layout responsivo
+│       ├── app.js             # Lógica frontend, radar de portas, chamadas à API e Mermaid
+│       └── styles.css         # Estilos visuais e layout responsivo
 ├── tests/
-│   └── test_server.py     # Suíte de testes unitários automatizados
+│   ├── test_server.py         # Testes do servidor HTTP, endpoints REST e scanner de projetos
+│   └── test_infra_scanner.py  # Testes do parser YAML, regex de compose e colisões de portas
 ├── templates/
-│   └── convention/        # Modelos recomendados para projetos monitorados
+│   └── convention/            # Modelos recomendados para projetos monitorados
 │       ├── ARCHITECTURE.template.md
 │       └── NOTE.template.md
-└── data/                  # Persistência local (catálogo e notas Markdown)
+└── data/                      # Persistência local (catálogo, config e notas Markdown)
 ```
 
 ---
@@ -72,7 +74,11 @@ A suíte de testes utiliza o módulo nativo `unittest` e valida:
 - Proteção de diretórios críticos do sistema operacional (`C:\Windows`, `/etc`, `/root`, etc.);
 - Extração precisa de blocos Mermaid (`flowchart`, `erDiagram`, `sequenceDiagram`);
 - Coleta de telemetria Git sem falhas em diretórios não-versionados;
-- Ciclo completo de leitura e escrita de notas Markdown com frontmatter.
+- Ciclo completo de leitura e escrita de notas Markdown com frontmatter;
+- Parsing determinístico de YAML frontmatter com biblioteca padrão Python;
+- Extração de portas de arquivos `docker-compose.yml` (short syntax, IP binding);
+- Detecção e agrupamento de colisões de portas na matriz de rede;
+- Invalidação e expiração de TTL de cache (30 segundos).
 
 ### Com Python nativo:
 ```bash

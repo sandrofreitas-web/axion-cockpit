@@ -21,6 +21,8 @@ A API REST do **Axion Cockpit** é fornecida nativamente pelo módulo [ui/app.py
 | `POST` | `/api/projects/{id}/notes` | Cria uma anotação em arquivo Markdown. |
 | `PUT` | `/api/projects/{id}/notes/{note_id}` | Atualiza uma anotação de melhoria existente. |
 | `DELETE` | `/api/projects/{id}/notes/{note_id}` | Exclui permanentemente uma anotação de melhoria. |
+| `GET` | `/api/infra` | Retorna catálogo de hosts, matriz de portas, colisões e métricas sob demanda. |
+| `POST` | `/api/infra/config` | Configura e valida o caminho absoluto para o cofre de infraestrutura. |
 
 ---
 
@@ -187,3 +189,71 @@ Cria uma nova anotação. As notas são armazenadas no disco com frontmatter YAM
 
 ### 4.3. `DELETE /api/projects/{id}/notes/{note_id}`
 Remove permanentemente o arquivo `.md` correspondente à nota em `data/notes/{project_id}/`.
+
+
+---
+
+## 5. Catálogo de Infraestrutura e Subsistemas
+
+### 5.1. `GET /api/infra`
+Retorna o catálogo consolidado de hosts da infraestrutura global (lidos das fichas declarativas no vault), matriz de portas de rede mapeadas (hosts e projetos locais), detecção de colisões e métricas agregadas.
+
+**Parâmetros de Consulta:**
+* `force_refresh=true` (opcional): Invalida o cache em memória de 30 segundos e força a releitura direta do disco.
+
+**Exemplo de Resposta (200 OK):**
+```json
+{
+  "vault_status": "ok",
+  "vault_path": "G:\\Meu Drive\\main_vault\\02_Recursos_e_Infra",
+  "resources": [
+    {
+      "id": "homelab-notebook",
+      "recurso": "Home Lab Notebook",
+      "tipo": "Bare-Metal Server (24/7)",
+      "entidade": "Pessoal",
+      "host": "192.168.15.176",
+      "os": "Ubuntu Server",
+      "status": "Ativo / Produção",
+      "servicos_ativos": ["Cockpit (:9090)", "Portainer (:9000 / :9443)"],
+      "ports": [9090, 9000, 9443],
+      "tags": ["recurso", "homelab"]
+    }
+  ],
+  "ports": {
+    "bindings": [
+      {
+        "host_port": 8080,
+        "is_collision": true,
+        "collision_count": 2,
+        "conflicting_sources": [
+          "Homelab Notebook",
+          "Axion Cockpit (web)"
+        ]
+      }
+    ],
+    "collision_count": 1,
+    "collisions": []
+  },
+  "metrics": {
+    "total_hosts": 6,
+    "by_type": { "Bare-Metal Server (24/7)": 2, "Cloud VPS": 3 },
+    "by_os": { "Ubuntu Server": 5 },
+    "by_entity": { "Pessoal": 2, "ICENV": 2, "SIAE BR": 2 }
+  }
+}
+```
+
+### 5.2. `POST /api/infra/config`
+Persiste o caminho do cofre em `data/config.json` e invalida o cache em memória.
+
+**Corpo da Requisição (JSON):**
+```json
+{
+  "vault_path": "G:\\Meu Drive\\main_vault\\02_Recursos_e_Infra"
+}
+```
+
+**Respostas:**
+* `200 OK`: `{"status": "ok", "vault_path": "..."}`
+* `400 Bad Request`: Caminho não informado, inválido ou inexistente no disco.

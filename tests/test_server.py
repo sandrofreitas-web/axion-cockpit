@@ -143,6 +143,18 @@ class TestProjectOSNotesStorage(unittest.TestCase):
         self.assertEqual(parsed["target_files"], ["app.py", "scanner.py"])
         self.assertIn("Esta é uma nota de teste automatizado.", parsed["content"])
 
+    def test_config_persistence(self):
+        cfg = {"vault_path": "C:\\Teste\\Vault"}
+        orig_config_file = app.CONFIG_FILE
+        try:
+            app.CONFIG_FILE = self.test_path / "config.json"
+            app.save_config(cfg)
+            self.assertTrue(app.CONFIG_FILE.exists())
+            loaded = app.load_config()
+            self.assertEqual(loaded["vault_path"], "C:\\Teste\\Vault")
+        finally:
+            app.CONFIG_FILE = orig_config_file
+
 
 if __name__ == "__main__":
     unittest.main()
