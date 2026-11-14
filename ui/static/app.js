@@ -1,6 +1,6 @@
 /**
- * Axion Cockpit — Frontend Application Controller
- * Gerencia a frota de projetos, visualização de documentação em tempo real,
+ * Nexus Cockpit — Frontend Application Controller
+ * Gerencia a frota de projetos locais, observabilidade read-only do Main Vault por entidade,
  * renderização client-side de diagramas Mermaid.js e quadro Kanban de notas.
  */
 
@@ -164,6 +164,12 @@ let fullscreenPanZoom = null;
 
 const state = {
   currentDomain: 'projects',
+  selectedVaultEntity: 'Todas',
+  activeVaultSubTab: 'all',
+  vaultSearchQuery: '',
+  vaultOnlyDivergences: false,
+  vaultEntitiesData: null,
+  vaultOverviewData: null,
   infraData: null,
   projects: [],
   selectedProjectId: null,
@@ -181,9 +187,23 @@ const state = {
 // DOM Elements
 // =============================================================================
 const elements = {
-  // Domain Switcher & Infra Elements
+  // Domain Switcher, Vault & Infra Elements
   domainBtns: document.querySelectorAll('.domain-btn'),
   viewInfra: document.getElementById('view-infra'),
+  viewVault: document.getElementById('view-vault'),
+  vaultStatusDot: document.getElementById('vault-status-dot'),
+  vaultStatusLabel: document.getElementById('vault-status-label'),
+  btnReindexTopbar: document.getElementById('btn-reindex-topbar'),
+  btnRefreshVault: document.getElementById('btn-refresh-vault'),
+  vaultBannerStatus: document.getElementById('vault-banner-status'),
+  vaultBannerMeta: document.getElementById('vault-banner-meta'),
+  vaultEntityChips: document.getElementById('vault-entity-chips'),
+  vaultMetricsContainer: document.getElementById('vault-metrics-container'),
+  vaultProjectsBody: document.getElementById('vault-projects-body'),
+  vaultAdrsBody: document.getElementById('vault-adrs-body'),
+  vaultInfraBody: document.getElementById('vault-infra-body'),
+  vaultAreasBody: document.getElementById('vault-areas-body'),
+  vaultErrorsBody: document.getElementById('vault-errors-body'),
   sidebar: document.querySelector('.sidebar'),
   btnRefreshInfra: document.getElementById('btn-refresh-infra'),
   btnConfigVault: document.getElementById('btn-config-vault'),
@@ -274,6 +294,38 @@ const elements = {
 // API Service Calls
 // =============================================================================
 const api = {
+  async getStatus() {
+    const res = await fetch('/api/status');
+    if (!res.ok) throw new Error('Falha ao consultar status');
+    return res.json();
+  },
+
+  async getVaultEntities() {
+    const res = await fetch('/api/vault/entities');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Falha ao listar entidades do vault');
+    return data;
+  },
+
+  async getVaultOverview(entity = 'Todas') {
+    const q = `?entity=${encodeURIComponent(entity)}`;
+    const res = await fetch(`/api/vault/overview${q}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Falha ao carregar visão do vault');
+    return data;
+  },
+
+  async reindexVault(force = true) {
+    const res = await fetch('/api/vault/reindex', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Falha ao reindexar o vault');
+    return data;
+  },
+
   async getInfraCatalog(forceRefresh = false) {
     const q = forceRefresh ? '?force_refresh=true' : '';
     const res = await fetch(`/api/infra${q}`);
@@ -398,9 +450,13 @@ const api = {
 
 function renderProjectsSidebar() {
   const searchTerm = (elements.projectSearch.value || '').toLowerCase();
+  const countEl = document.getElementById('sidebar-projects-count');
+  if (countEl) countEl.textContent = String(state.projects.length || 0);
+
   const filtered = state.projects.filter(p => 
     p.name.toLowerCase().includes(searchTerm) || 
     p.path.toLowerCase().includes(searchTerm) ||
+    (p.entity && p.entity.toLowerCase().includes(searchTerm)) ||
     (p.tags && p.tags.some(t => t.toLowerCase().includes(searchTerm)))
   );
 
@@ -418,18 +474,19 @@ function renderProjectsSidebar() {
     const isDirty = p.git && p.git.is_dirty;
     const branch = (p.git && p.git.branch) ? p.git.branch : 'no-git';
     const accessible = p.accessible !== false;
+    const entityName = p.entity || '';
 
     return `
       <div class="project-item ${isSelected ? 'active' : ''} ${!accessible ? 'inaccessible' : ''}" data-id="${p.id}">
-        <div class="proj-item-header">
-          <strong class="proj-item-name">${escapeHtml(p.name)}</strong>
-          <span class="proj-item-version">${escapeHtml(p.current_version || 'v1.0.0')}</span>
+        <div class="project-item-header">
+          <strong class="project-item-name">${escapeHtml(p.name)}</strong>
+          <span class="project-item-version">${escapeHtml(p.current_version || 'v1.0.0')}</span>
         </div>
-        <div class="proj-item-path" title="${escapeHtml(p.path)}">${escapeHtml(p.path)}</div>
-        <div class="proj-item-meta">
-          <span class="meta-tag git-tag"><span class="git-icon">🌿</span> ${escapeHtml(branch)}</span>
-          ${isDirty ? `<span class="meta-tag dirty-tag">● ${p.git.uncommitted_count} pendente(s)</span>` : ''}
-          ${!accessible ? `<span class="meta-tag error-tag">Inacessível</span>` : ''}
+        <div class="project-item-meta">
+          <span>⎇ ${escapeHtml(branch)}</span>
+          ${entityName ? `<span class="project-item-entity">${escapeHtml(entityName)}</span>` : ''}
+          ${isDirty ? `<span class="text-warning">● ${p.git.uncommitted_count} mod</span>` : ''}
+          ${!accessible ? `<span style="color: var(--accent-red);">Inacessível</span>` : ''}
         </div>
       </div>
     `;
@@ -450,7 +507,7 @@ async function selectProject(projectId) {
   renderProjectsSidebar();
 
   if (!state.selectedProjectData) {
-    elements.viewEmpty.style.display = 'block';
+    elements.viewEmpty.style.display = 'flex';
     elements.viewProject.style.display = 'none';
     elements.breadcrumb.textContent = 'Nenhum projeto selecionado';
     return;
@@ -464,6 +521,16 @@ async function selectProject(projectId) {
   elements.projTitle.textContent = state.selectedProjectData.name;
   elements.projVersion.textContent = state.selectedProjectData.current_version || 'v1.0.0';
   elements.projPath.textContent = state.selectedProjectData.path;
+
+  const entityBadge = document.getElementById('proj-entity-badge');
+  if (entityBadge) {
+    if (state.selectedProjectData.entity) {
+      entityBadge.textContent = state.selectedProjectData.entity;
+      entityBadge.style.display = 'inline-flex';
+    } else {
+      entityBadge.style.display = 'none';
+    }
+  }
 
   const git = state.selectedProjectData.git || {};
   elements.projGitBranch.innerHTML = `<span class="git-icon">🌿</span> ${escapeHtml(git.branch || 'no-git')}`;
@@ -1293,6 +1360,51 @@ function setupEvents() {
     });
   }
 
+  // Botões de Reindexação Manual do Vault
+  if (elements.btnReindexTopbar) {
+    elements.btnReindexTopbar.addEventListener('click', async () => {
+      await triggerManualReindex();
+    });
+  }
+  if (elements.btnRefreshVault) {
+    elements.btnRefreshVault.addEventListener('click', async () => {
+      await triggerManualReindex();
+    });
+  }
+
+  // Sub-navegação e filtros em tempo real da Visão Vault & Entidades
+  const vaultSubnav = document.getElementById('vault-subnav');
+  if (vaultSubnav) {
+    vaultSubnav.querySelectorAll('.vault-subnav-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.activeVaultSubTab = btn.getAttribute('data-vault-tab') || 'all';
+        vaultSubnav.querySelectorAll('.vault-subnav-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        applyVaultSectionVisibility();
+      });
+    });
+  }
+
+  const vaultSearchInput = document.getElementById('vault-search-input');
+  if (vaultSearchInput) {
+    vaultSearchInput.addEventListener('input', () => {
+      state.vaultSearchQuery = (vaultSearchInput.value || '').trim().toLowerCase();
+      if (state.vaultEntitiesData && state.vaultOverviewData) {
+        renderVaultDashboard(state.vaultEntitiesData, state.vaultOverviewData);
+      }
+    });
+  }
+
+  const vaultOnlyDivToggle = document.getElementById('vault-only-divergences');
+  if (vaultOnlyDivToggle) {
+    vaultOnlyDivToggle.addEventListener('change', () => {
+      state.vaultOnlyDivergences = !!vaultOnlyDivToggle.checked;
+      if (state.vaultEntitiesData && state.vaultOverviewData) {
+        renderVaultDashboard(state.vaultEntitiesData, state.vaultOverviewData);
+      }
+    });
+  }
+
   // Modal Configurar Vault
   if (elements.btnConfigVault && elements.modalConfigVault) {
     elements.btnConfigVault.addEventListener('click', () => {
@@ -1333,17 +1445,326 @@ async function switchDomain(domain) {
     elements.sidebar.style.display = 'none';
     elements.viewEmpty.style.display = 'none';
     elements.viewProject.style.display = 'none';
+    if (elements.viewVault) elements.viewVault.classList.add('hidden');
     elements.viewInfra.classList.remove('hidden');
     elements.breadcrumb.innerHTML = `<span class="crumb-root">INFRAESTRUTURA GLOBAL</span> / <span class="crumb-current">CATÁLOGO &amp; SUBSISTEMAS</span>`;
     await loadInfraCatalog();
+  } else if (domain === 'vault') {
+    elements.sidebar.style.display = 'none';
+    elements.viewEmpty.style.display = 'none';
+    elements.viewProject.style.display = 'none';
+    elements.viewInfra.classList.add('hidden');
+    if (elements.viewVault) elements.viewVault.classList.remove('hidden');
+    elements.breadcrumb.innerHTML = `<span class="crumb-root">MAIN VAULT</span> / <span class="crumb-current">${escapeHtml(state.selectedVaultEntity)}</span>`;
+    await loadVaultDashboard(state.selectedVaultEntity);
   } else {
     elements.sidebar.style.display = 'flex';
     elements.viewInfra.classList.add('hidden');
+    if (elements.viewVault) elements.viewVault.classList.add('hidden');
     if (state.selectedProjectId) {
       selectProject(state.selectedProjectId);
     } else {
       elements.viewEmpty.style.display = 'block';
       elements.breadcrumb.textContent = 'Nenhum projeto selecionado';
+    }
+  }
+}
+
+function updateTopbarVaultPill(vaultSummary) {
+  if (!elements.vaultStatusLabel || !elements.vaultStatusDot || !vaultSummary) return;
+  const st = vaultSummary.vault_status || 'initializing';
+  const ts = vaultSummary.last_indexed_at ? vaultSummary.last_indexed_at.replace('T', ' ').replace('Z', ' UTC') : 'pendente';
+  elements.vaultStatusDot.className = 'pulse-dot ' + (st === 'available' ? 'green' : (st === 'initializing' ? 'blue' : 'yellow'));
+  elements.vaultStatusLabel.textContent = `Índice (${st}): ${ts}`;
+}
+
+async function triggerManualReindex() {
+  try {
+    if (elements.vaultStatusLabel) {
+      elements.vaultStatusLabel.textContent = 'Índice: reindexando...';
+    }
+    const summary = await api.reindexVault(true);
+    updateTopbarVaultPill(summary);
+    if (state.currentDomain === 'vault') {
+      await loadVaultDashboard(state.selectedVaultEntity);
+    } else if (state.currentDomain === 'infra') {
+      await loadInfraCatalog(true);
+    }
+  } catch (err) {
+    alert('Erro ao reindexar Main Vault: ' + err.message);
+  }
+}
+
+async function loadVaultDashboard(entity = 'Todas') {
+  state.selectedVaultEntity = entity || 'Todas';
+  try {
+    const [entitiesData, overviewData] = await Promise.all([
+      api.getVaultEntities(),
+      api.getVaultOverview(state.selectedVaultEntity)
+    ]);
+    state.vaultEntitiesData = entitiesData;
+    state.vaultOverviewData = overviewData;
+    updateTopbarVaultPill({
+      vault_status: overviewData.vault_status,
+      last_indexed_at: overviewData.last_indexed_at
+    });
+    renderVaultDashboard(entitiesData, overviewData);
+  } catch (err) {
+    if (elements.vaultBannerMeta) {
+      elements.vaultBannerMeta.textContent = 'Erro ao consultar observabilidade do vault: ' + err.message;
+    }
+  }
+}
+
+function applyVaultSectionVisibility() {
+  const activeTab = state.activeVaultSubTab || 'all';
+  document.querySelectorAll('.vault-domain-section').forEach(sec => {
+    const secName = sec.getAttribute('data-vault-section');
+    if (activeTab === 'all' || activeTab === secName) {
+      sec.classList.remove('hidden');
+    } else {
+      sec.classList.add('hidden');
+    }
+  });
+}
+
+function renderVaultDashboard(entitiesData, overviewData) {
+  const st = overviewData.vault_status || 'unavailable';
+  const ts = overviewData.last_indexed_at || 'N/A';
+  if (elements.vaultBannerStatus) {
+    elements.vaultBannerStatus.textContent = `Vault: ${st.toUpperCase()}`;
+  }
+  if (elements.vaultBannerMeta) {
+    const errNote = overviewData.vault_error ? ` • Alerta: ${overviewData.vault_error}` : '';
+    elements.vaultBannerMeta.textContent = `Schema v${overviewData.schema_version || '1.0.0'} • Última indexação: ${ts}${errNote}`;
+  }
+
+  const calloutEl = document.getElementById('vault-unavailable-callout');
+  if (calloutEl) {
+    if (st === 'unavailable' || st === 'degraded') {
+      calloutEl.classList.remove('hidden');
+    } else {
+      calloutEl.classList.add('hidden');
+    }
+  }
+
+  // 1. Chips de Entidades
+  if (elements.vaultEntityChips && entitiesData && entitiesData.entities) {
+    elements.vaultEntityChips.innerHTML = entitiesData.entities.map(ent => {
+      const totalItems = (ent.projects || 0) + (ent.infra || 0) + (ent.adrs || 0) + (ent.areas || 0);
+      const isAct = ent.name === state.selectedVaultEntity;
+      return `
+        <button type="button" class="entity-chip ${isAct ? 'active' : ''}" data-entity="${escapeHtml(ent.name)}">
+          <span>${escapeHtml(ent.name)}</span>
+          <span class="entity-chip-count">${totalItems} itens • ${ent.divergences || 0} div</span>
+        </button>
+      `;
+    }).join('');
+
+    elements.vaultEntityChips.querySelectorAll('.entity-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const chosen = btn.getAttribute('data-entity') || 'Todas';
+        elements.breadcrumb.innerHTML = `<span class="crumb-root">MAIN VAULT</span> / <span class="crumb-current">${escapeHtml(chosen)}</span>`;
+        loadVaultDashboard(chosen);
+      });
+    });
+  }
+
+  // 2. Cards de Métricas
+  const sum = overviewData.summary || { total_nodes: 0, contract_errors: 0, warnings: 0, divergences: 0 };
+  if (elements.vaultMetricsContainer) {
+    elements.vaultMetricsContainer.innerHTML = `
+      <div class="infra-metric-card">
+        <span class="label">Notas Indexadas (${escapeHtml(overviewData.entity)})</span>
+        <span class="value">${sum.total_nodes}</span>
+        <span class="sub">4 domínios na allowlist</span>
+      </div>
+      <div class="infra-metric-card">
+        <span class="label">Erros de Contrato</span>
+        <span class="value" style="color: ${sum.contract_errors > 0 ? '#fda4af' : 'var(--accent-green)'};">${sum.contract_errors}</span>
+        <span class="sub">Validação vault_schemas.json</span>
+      </div>
+      <div class="infra-metric-card">
+        <span class="label">Avisos Não-Bloqueantes</span>
+        <span class="value" style="color: ${sum.warnings > 0 ? 'var(--accent-yellow)' : 'var(--text-primary)'};">${sum.warnings}</span>
+        <span class="sub">Notas auxiliares sem frontmatter</span>
+      </div>
+      <div class="infra-metric-card">
+        <span class="label">Divergências Binárias</span>
+        <span class="value" style="color: ${sum.divergences > 0 ? '#fda4af' : 'var(--accent-green)'};">${sum.divergences}</span>
+        <span class="sub">Matriz limitada Vault ↔ Git/Compose</span>
+      </div>
+    `;
+  }
+
+  const q = state.vaultSearchQuery || '';
+  const onlyDiv = state.vaultOnlyDivergences;
+
+  const nodes = (overviewData.vault_nodes || []).filter(n => {
+    if (onlyDiv && (!n.validation_errors || n.validation_errors.length === 0) && n.frontmatter_status === 'ok') {
+      return false;
+    }
+    if (!q) return true;
+    const hay = `${n.title || ''} ${n.rel_path || ''} ${n.entity || ''} ${n.adr || ''} ${n.doc_type || ''} ${n.area || ''} ${n.status || ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  const links = (overviewData.project_repo_links || []).filter(l => {
+    if (onlyDiv && (!l.divergence_flags || l.divergence_flags.length === 0)) {
+      return false;
+    }
+    if (!q) return true;
+    const hay = `${l.project_title || ''} ${l.vault_rel_path || ''} ${l.entity || ''} ${l.cockpit_project_id || ''} ${(l.divergence_flags || []).join(' ')}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  const errors = (overviewData.scan_errors || []).filter(er => {
+    if (!q) return true;
+    const hay = `${er.domain || ''} ${er.rel_path || ''} ${er.error_type || ''} ${er.detail || ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  const adrNodes = nodes.filter(n => n.domain === 'adrs');
+  const infraNodes = nodes.filter(n => n.domain === 'infra');
+  const areaNodes = nodes.filter(n => n.domain === 'areas');
+
+  // Atualiza contadores das sub-abas
+  const setCount = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(val);
+  };
+  setCount('subnav-count-all', links.length + adrNodes.length + infraNodes.length + areaNodes.length);
+  setCount('subnav-count-projects', links.length);
+  setCount('subnav-count-adrs', adrNodes.length);
+  setCount('subnav-count-infra', infraNodes.length);
+  setCount('subnav-count-areas', areaNodes.length);
+  setCount('subnav-count-audit', errors.length);
+
+  applyVaultSectionVisibility();
+
+  // 3. Tabela 01_Projetos + Vínculos N:1
+  if (elements.vaultProjectsBody) {
+    if (links.length === 0) {
+      elements.vaultProjectsBody.innerHTML = '<tr><td colspan="7" class="muted-text">Nenhum projeto vinculado para esta seleção.</td></tr>';
+    } else {
+      elements.vaultProjectsBody.innerHTML = links.map(l => {
+        const n1Badge = l.sibling_modules_count > 1 ? ` <span class="tag-pill">N:1 (${l.sibling_modules_count} módulos)</span>` : '';
+        const repoInfo = l.cockpit_project_id
+          ? `<strong>${escapeHtml(l.cockpit_project_id)}</strong><br><span class="mono-text muted-text" style="font-size:11px;">${escapeHtml(l.link_state)}</span>`
+          : `<span class="mono-text muted-text" style="font-size:11px;">${escapeHtml(l.link_state)}: ${escapeHtml(l.raw_repo_ref || 'N/A')}</span>`;
+        const git = l.git || {};
+        const gitHtml = git.is_repo
+          ? `<span class="mono-text">${escapeHtml(git.branch)}</span> ${git.is_dirty ? '<span class="warn-pill">is_dirty (info)</span>' : '<span class="ok-pill">limpo</span>'}`
+          : '<span class="muted-text">Sem Git local</span>';
+        const declPorts = (l.declared_ports || []).join(', ') || '—';
+        const compPorts = (l.compose_ports || []).join(', ') || '—';
+        const divFlags = l.divergence_flags || [];
+        const divHtml = divFlags.length > 0
+          ? divFlags.map(f => `<span class="divergence-pill">${escapeHtml(f)}</span>`).join('')
+          : '<span class="ok-pill">✓ Sem divergência</span>';
+
+        return `
+          <tr>
+            <td><strong>${escapeHtml(l.project_title)}</strong>${n1Badge}<br><span class="mono-text muted-text" style="font-size:11px;">${escapeHtml(l.vault_rel_path || 'Somente em projects.json')}</span></td>
+            <td><span class="tag-pill">${escapeHtml(l.entity)}</span></td>
+            <td>${escapeHtml(l.vault_status)}</td>
+            <td>${repoInfo}</td>
+            <td>${gitHtml}</td>
+            <td class="mono-text" style="font-size:11px;">Vault: [${escapeHtml(declPorts)}]<br>Compose: [${escapeHtml(compPorts)}]</td>
+            <td>${divHtml}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  // 4. Tabela 04_Arquitetura_ADRs
+  if (elements.vaultAdrsBody) {
+    if (adrNodes.length === 0) {
+      elements.vaultAdrsBody.innerHTML = '<tr><td colspan="6" class="muted-text">Nenhuma ADR para esta seleção.</td></tr>';
+    } else {
+      elements.vaultAdrsBody.innerHTML = adrNodes.map(a => {
+        const hasErr = (a.validation_errors || []).length > 0;
+        return `
+          <tr>
+            <td><span class="port-number-badge">${escapeHtml(a.adr || 'ADR')}</span></td>
+            <td><strong>${escapeHtml(a.title)}</strong><br><span class="mono-text muted-text" style="font-size:11px;">${escapeHtml(a.rel_path)}</span></td>
+            <td><span class="tag-pill">${escapeHtml(a.entity)}</span></td>
+            <td class="mono-text">${escapeHtml(a.doc_date || '—')}</td>
+            <td>${escapeHtml(a.status)}</td>
+            <td>${hasErr ? '<span class="divergence-pill">Erro Contrato</span>' : '<span class="ok-pill">✓ Conforme (Isento Idade)</span>'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  // 5. Tabela 02_Recursos_e_Infra
+  if (elements.vaultInfraBody) {
+    if (infraNodes.length === 0) {
+      elements.vaultInfraBody.innerHTML = '<tr><td colspan="6" class="muted-text">Nenhuma ficha de infraestrutura para esta seleção.</td></tr>';
+    } else {
+      elements.vaultInfraBody.innerHTML = infraNodes.map(inf => {
+        const hasErr = (inf.validation_errors || []).length > 0;
+        const portsStr = (inf.ports || []).map(p => ':' + p).join(', ') || '—';
+        return `
+          <tr>
+            <td><strong>${escapeHtml(inf.title)}</strong><br><span class="mono-text muted-text" style="font-size:11px;">${escapeHtml(inf.rel_path)}</span></td>
+            <td>${escapeHtml(inf.doc_type)}</td>
+            <td><span class="tag-pill">${escapeHtml(inf.entity)}</span></td>
+            <td>${escapeHtml(inf.status || 'Especificação')}</td>
+            <td class="mono-text">${escapeHtml(portsStr)}</td>
+            <td>${hasErr ? '<span class="divergence-pill">Erro Contrato</span>' : '<span class="ok-pill">✓ Conforme</span>'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  // 6. Tabela 05_Areas (Somente Metadados Autorizados)
+  if (elements.vaultAreasBody) {
+    if (areaNodes.length === 0) {
+      elements.vaultAreasBody.innerHTML = '<tr><td colspan="7" class="muted-text">Nenhum registro de 05_Areas para esta seleção.</td></tr>';
+    } else {
+      elements.vaultAreasBody.innerHTML = areaNodes.map(ar => {
+        const hasErr = (ar.validation_errors || []).length > 0;
+        const fmBadge = ar.frontmatter_status === 'ok'
+          ? '<span class="ok-pill">YAML OK</span>'
+          : '<span class="warn-pill">Auxiliar (Sem YAML)</span>';
+        return `
+          <tr>
+            <td><strong>${escapeHtml(ar.title)}</strong><br><span class="mono-text muted-text" style="font-size:11px;">${escapeHtml(ar.rel_path)}</span></td>
+            <td class="mono-text">${escapeHtml(ar.area || '—')}</td>
+            <td><span class="tag-pill">${escapeHtml(ar.entity)}</span></td>
+            <td>${escapeHtml(ar.doc_type || 'Nota Auxiliar')}</td>
+            <td>${fmBadge}</td>
+            <td class="mono-text" style="font-size:11px;">${escapeHtml(ar.links_status)}</td>
+            <td>${hasErr ? '<span class="divergence-pill">Erro Contrato</span>' : '<span class="ok-pill">✓ Metadados Seguros</span>'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  // 7. Auditoria de Contratos e Avisos (scan_errors)
+  if (elements.vaultErrorsBody) {
+    if (errors.length === 0) {
+      elements.vaultErrorsBody.innerHTML = '<tr><td colspan="5" class="muted-text">Zero erros ou avisos de contrato nesta seleção.</td></tr>';
+    } else {
+      elements.vaultErrorsBody.innerHTML = errors.map(er => {
+        const sevPill = er.severity === 'error'
+          ? '<span class="divergence-pill">ERRO</span>'
+          : '<span class="warn-pill">AVISO</span>';
+        return `
+          <tr>
+            <td>${sevPill}</td>
+            <td class="mono-text">${escapeHtml(er.domain)}</td>
+            <td class="mono-text">${escapeHtml(er.rel_path)}</td>
+            <td class="mono-text">${escapeHtml(er.error_type)}</td>
+            <td class="mono-text">${escapeHtml(er.detail)}</td>
+          </tr>
+        `;
+      }).join('');
     }
   }
 }
@@ -1566,7 +1987,14 @@ function formatBytes(bytes) {
 // =============================================================================
 async function init() {
   try {
-    state.projects = await api.getProjects();
+    const [projects, statusResp] = await Promise.all([
+      api.getProjects(),
+      api.getStatus().catch(() => null)
+    ]);
+    if (statusResp && statusResp.vault) {
+      updateTopbarVaultPill(statusResp.vault);
+    }
+    state.projects = projects;
     renderProjectsSidebar();
     if (state.projects.length > 0 && !state.selectedProjectId) {
       selectProject(state.projects[0].id);
@@ -1574,7 +2002,7 @@ async function init() {
       selectProject(state.selectedProjectId);
     }
   } catch (err) {
-    console.error('Falha ao inicializar Axion Cockpit:', err);
+    console.error('Falha ao inicializar Nexus Cockpit:', err);
     elements.projectList.innerHTML = `<div class="error-box">Erro ao conectar com a API: ${escapeHtml(err.message)}</div>`;
   }
 }

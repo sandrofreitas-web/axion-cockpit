@@ -1,10 +1,9 @@
-# Technical Design Document: Passive Infrastructure Catalog & Subsystem Visualization (Axion Cockpit)
+# Technical Design Document: Passive Infrastructure Catalog & Subsystem Visualization (Nexus Cockpit)
 
-* **Status:** Remediated & Approved (Post-EGM Swarm Review)
+* **Status:** Remediated & Approved (Post-EGM Swarm Review) — Evolved in [vault_observability_and_entity_cockpit.md](vault_observability_and_entity_cockpit.md)
 * **Author:** Sandro Freitas & Antigravity
 * **Date:** 2026-11-07
-* **Predecessor RFC:** [concepts_brief.md](../../concepts_brief.md)
-* **Audit Report:** [consolidated_review_report.md](../../consolidated_review_report.md)
+* **Audit Report:** [docs/reviews/consolidated_review_report.md](../reviews/consolidated_review_report.md)
 
 ---
 

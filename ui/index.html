@@ -3,9 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Axion Cockpit — Console Operacional e Arquitetural</title>
-  <link rel="stylesheet" href="static/styles.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%20100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <title>Nexus Cockpit — Mission Control &amp; Observabilidade do Main Vault</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="static/styles.css?v=20261113.2">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%200%20100%20100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
   <!-- Mermaid.js para renderização client-side de diagramas -->
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <!-- Marked.js para renderização de Markdown no cliente -->
@@ -17,32 +20,45 @@
   <header class="system-topbar">
     <div class="topbar-left">
       <div class="topbar-brand">
-        <span class="brand-glyph">⚡</span>
-        <span class="brand-name">AXION<span class="brand-accent">.COCKPIT</span></span>
-        <span class="brand-chip">OPERATIONS COCKPIT</span>
+        <span class="brand-glyph" aria-hidden="true">⚡</span>
+        <span class="brand-name">NEXUS<span class="brand-accent">.COCKPIT</span></span>
+        <span class="brand-chip">v2.0 // STDLIB</span>
       </div>
       <div class="topbar-divider"></div>
-      <div class="nav-domains">
-        <button class="domain-btn active" data-domain="projects">📦 Projetos Locais</button>
-        <button class="domain-btn" data-domain="infra">🌐 Infraestrutura Global</button>
-      </div>
+      <nav class="nav-domains" aria-label="Domínios do Cockpit">
+        <button class="domain-btn active" data-domain="projects">
+          <span class="domain-btn-dot"></span>
+          <span>Projetos Locais</span>
+        </button>
+        <button class="domain-btn" data-domain="infra">
+          <span class="domain-btn-dot"></span>
+          <span>Infra &amp; Subsistemas</span>
+        </button>
+        <button class="domain-btn" data-domain="vault">
+          <span class="domain-btn-dot"></span>
+          <span>Vault &amp; Entidades</span>
+        </button>
+      </nav>
       <div class="topbar-divider"></div>
       <div class="topbar-breadcrumb">
-        <span class="crumb-root">LOCAL FLEET</span>
+        <span class="crumb-root">FLEET</span>
         <span class="crumb-sep">/</span>
         <span class="crumb-current" id="active-project-breadcrumb">Nenhum projeto selecionado</span>
       </div>
     </div>
     
     <div class="topbar-right">
-      <div class="system-status-pill">
-        <span class="pulse-dot green"></span>
-        <span class="status-label">127.0.0.1:4100 (ONLINE)</span>
+      <div class="system-status-pill" title="Bind estrito em interface de loopback local">
+        <span class="pulse-dot green" id="status-host-dot"></span>
+        <span class="status-label mono-text">127.0.0.1:4100</span>
       </div>
-      <div class="system-status-pill">
-        <span class="pulse-dot blue"></span>
-        <span class="status-label">ZERO-DRIFT (ON-DEMAND)</span>
+      <div class="system-status-pill" id="vault-index-pill" title="Estado do Snapshot Imutável em Memória do Main Vault">
+        <span class="pulse-dot blue" id="vault-status-dot"></span>
+        <span class="status-label mono-text" id="vault-status-label">Vault: inicializando...</span>
       </div>
+      <button class="btn btn-secondary btn-sm" id="btn-reindex-topbar" title="Reconstruir Snapshot em Memória do Main Vault">
+        ↻ Reindexar Vault
+      </button>
       <button class="btn btn-primary btn-sm" id="btn-open-add-project">
         + Registrar Projeto
       </button>
@@ -53,23 +69,27 @@
     <!-- Sidebar Navigation: Frota de Projetos -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <div class="sidebar-section-title">FROTA DE PROJETOS // LOCAL</div>
-        <input type="text" id="project-search-input" class="search-input" placeholder="Filtrar projetos...">
+        <div class="sidebar-header-top">
+          <div class="sidebar-section-title">FROTA DE PROJETOS</div>
+          <span class="sidebar-counter mono-text" id="sidebar-projects-count">0</span>
+        </div>
+        <div class="sidebar-search-wrap">
+          <input type="text" id="project-search-input" class="search-input" placeholder="Filtrar por nome, entidade ou tag...">
+        </div>
       </div>
 
       <div class="project-list" id="project-list-container">
-        <!-- Renderizado dinamicamente via app.js -->
-        <div class="loading-state">Carregando projetos...</div>
+        <div class="loading-state">Carregando frota local...</div>
       </div>
 
       <div class="sidebar-footer">
         <div class="telemetry-row">
-          <span>ARMAZENAMENTO:</span>
-          <strong class="mono-text">Arquivos Planos</strong>
+          <span>PERSISTÊNCIA</span>
+          <strong class="mono-text">JSON + Snapshot RAM</strong>
         </div>
         <div class="telemetry-row">
-          <span>ORQUESTRADOR:</span>
-          <strong class="mono-text">Orca / CLI</strong>
+          <span>GOVERNANÇA</span>
+          <strong class="mono-text">vault_schemas.json</strong>
         </div>
       </div>
     </aside>
@@ -79,10 +99,10 @@
       <!-- Empty State quando nenhum projeto estiver selecionado -->
       <section class="empty-view active" id="view-empty">
         <div class="empty-card">
-          <div class="empty-icon">📂</div>
-          <h2>Nenhum Projeto Selecionado</h2>
-          <p>Selecione um projeto na barra lateral ou registre um novo diretório local para inspecionar sua documentação viva, workflows e banco de dados.</p>
-          <button class="btn btn-primary" id="btn-empty-add-project">+ Registrar Primeiro Projeto</button>
+          <div class="empty-icon">⚡</div>
+          <h2>Console Operacional Pronto</h2>
+          <p>Selecione um projeto na barra lateral para inspecionar sua arquitetura viva, diagramas Mermaid e telemetria Git, ou alterne para <strong>Vault &amp; Entidades</strong> no topo.</p>
+          <button class="btn btn-primary" id="btn-empty-add-project">+ Registrar Projeto Local</button>
         </div>
       </section>
 
@@ -93,42 +113,43 @@
           <div class="banner-main">
             <div class="title-row">
               <h1 id="proj-title">Nome do Projeto</h1>
-              <span class="version-badge" id="proj-version">v1.0.0</span>
-              <span class="git-badge" id="proj-git-branch"><span class="git-icon">🌿</span> main</span>
-              <span class="git-dirty-badge" id="proj-git-dirty" style="display: none;">● Alterações Pendentes</span>
+              <span class="version-badge mono-text" id="proj-version">v1.0.0</span>
+              <span class="entity-badge" id="proj-entity-badge" style="display: none;">Entidade</span>
+              <span class="git-badge mono-text" id="proj-git-branch"><span class="git-icon">⎇</span> main</span>
+              <span class="git-dirty-badge" id="proj-git-dirty" style="display: none;">● Working Tree Modificada</span>
             </div>
             <p class="project-path mono-text" id="proj-path">C:/Docker/meu-projeto</p>
             <div class="tags-row" id="proj-tags"></div>
           </div>
           <div class="banner-actions">
             <button class="btn btn-secondary btn-sm" id="btn-refresh-project" title="Recarregar Documentação do Disco">
-              ↻ Recarregar
+              ↻ Atualizar
             </button>
             <button class="btn btn-outline btn-sm" id="btn-open-version-modal">
-              🏷️ Atualizar Versão
+              🏷️ Homologar Versão
             </button>
-            <button class="btn btn-danger btn-sm" id="btn-delete-project" title="Desvincular Projeto do OS">
+            <button class="btn btn-danger btn-sm" id="btn-delete-project" title="Desvincular Projeto do Cockpit">
               Remover
             </button>
           </div>
         </div>
 
         <!-- Project Tabs -->
-        <nav class="project-tabs">
+        <nav class="project-tabs" aria-label="Seções do Projeto">
           <button class="tab-btn active" data-tab="tab-techspec">
-            <span class="tab-icon">📄</span> Visão Geral & Techspec
+            <span>Especificação &amp; Arquitetura</span>
           </button>
           <button class="tab-btn" data-tab="tab-workflows">
-            <span class="tab-icon">🔄</span> Workflows Operacionais
-            <span class="badge-count" id="count-workflows">0</span>
+            <span>Workflows Operacionais</span>
+            <span class="badge-count mono-text" id="count-workflows">0</span>
           </button>
           <button class="tab-btn" data-tab="tab-database">
-            <span class="tab-icon">🗄️</span> Banco de Dados & ERD
-            <span class="badge-count" id="count-database">0</span>
+            <span>Modelo de Dados (ERD)</span>
+            <span class="badge-count mono-text" id="count-database">0</span>
           </button>
           <button class="tab-btn" data-tab="tab-notes">
-            <span class="tab-icon">📝</span> Ledger de Melhorias
-            <span class="badge-count" id="count-notes">0</span>
+            <span>Ledger de Melhorias</span>
+            <span class="badge-count mono-text" id="count-notes">0</span>
           </button>
         </nav>
 
@@ -142,15 +163,15 @@
               </div>
               <aside class="techspec-sidebar">
                 <div class="meta-card">
-                  <h3>Indicadores de Ambiente</h3>
+                  <h3>Indicadores de Stack &amp; Ambiente</h3>
                   <ul class="indicators-list" id="env-indicators-list"></ul>
                 </div>
                 <div class="meta-card">
-                  <h3>Arquivos Encontrados</h3>
+                  <h3>Artefatos Documentais</h3>
                   <ul class="docs-found-list" id="docs-found-list"></ul>
                 </div>
                 <div class="meta-card">
-                  <h3>Git Telemetry</h3>
+                  <h3>Telemetria Git</h3>
                   <div class="telemetry-info" id="git-telemetry-info"></div>
                 </div>
               </aside>
@@ -162,8 +183,8 @@
             <div class="mermaid-section-header">
               <h2>Diagramas de Fluxo Operacional (Mermaid)</h2>
               <div class="view-toggle">
-                <button class="toggle-btn active" id="btn-wf-view-diagram">Visual</button>
-                <button class="toggle-btn" id="btn-wf-view-raw">Código Bruto</button>
+                <button class="toggle-btn active" id="btn-wf-view-diagram">Visual Interativo</button>
+                <button class="toggle-btn" id="btn-wf-view-raw">Código Fonte</button>
               </div>
             </div>
             <div class="mermaid-container" id="workflows-diagram-container">
@@ -176,8 +197,8 @@
             <div class="mermaid-section-header">
               <h2>Modelo Entidade-Relacionamento (ERD)</h2>
               <div class="view-toggle">
-                <button class="toggle-btn active" id="btn-db-view-diagram">Visual</button>
-                <button class="toggle-btn" id="btn-db-view-raw">Código Bruto</button>
+                <button class="toggle-btn active" id="btn-db-view-diagram">Visual Interativo</button>
+                <button class="toggle-btn" id="btn-db-view-raw">Código Fonte</button>
               </div>
             </div>
             <div class="mermaid-container" id="database-diagram-container">
@@ -189,8 +210,8 @@
           <div class="tab-pane" id="tab-notes">
             <div class="notes-header">
               <div>
-                <h2>Ledger de Melhorias e Revisões</h2>
-                <p class="subtitle">Anotações e ideias isoladas fora do Git do projeto até a homologação de versão.</p>
+                <h2>Ledger de Melhorias e Revisões Pré-Release</h2>
+                <p class="subtitle">Rascunhos técnicos e pendências desacoplados da árvore de commits do repositório.</p>
               </div>
               <button class="btn btn-primary btn-sm" id="btn-open-add-note">+ Nova Anotação</button>
             </div>
@@ -201,7 +222,7 @@
                 <div class="col-header">
                   <span class="status-indicator yellow"></span>
                   <h3>Ideias</h3>
-                  <span class="count-pill" id="count-col-idea">0</span>
+                  <span class="count-pill mono-text" id="count-col-idea">0</span>
                 </div>
                 <div class="col-cards" id="cards-idea"></div>
               </div>
@@ -210,7 +231,7 @@
                 <div class="col-header">
                   <span class="status-indicator blue"></span>
                   <h3>Planejadas</h3>
-                  <span class="count-pill" id="count-col-planned">0</span>
+                  <span class="count-pill mono-text" id="count-col-planned">0</span>
                 </div>
                 <div class="col-cards" id="cards-planned"></div>
               </div>
@@ -219,7 +240,7 @@
                 <div class="col-header">
                   <span class="status-indicator purple"></span>
                   <h3>Em Revisão</h3>
-                  <span class="count-pill" id="count-col-in_review">0</span>
+                  <span class="count-pill mono-text" id="count-col-in_review">0</span>
                 </div>
                 <div class="col-cards" id="cards-in_review"></div>
               </div>
@@ -228,7 +249,7 @@
                 <div class="col-header">
                   <span class="status-indicator green"></span>
                   <h3>Incorporadas</h3>
-                  <span class="count-pill" id="count-col-incorporated">0</span>
+                  <span class="count-pill mono-text" id="count-col-incorporated">0</span>
                 </div>
                 <div class="col-cards" id="cards-incorporated"></div>
               </div>
@@ -242,17 +263,17 @@
         <div class="infra-header-card">
           <div class="infra-header-left">
             <div class="title-row">
-              <h2>🌐 Infraestrutura Global & Subsistemas</h2>
-              <span class="badge-declarative">Catálogo Declarativo (Passivo)</span>
+              <h2>Infraestrutura Global &amp; Matriz de Portas</h2>
+              <span class="badge-declarative">Observador Passivo (Zero ICMP)</span>
             </div>
             <p class="infra-subtitle mono-text" id="infra-vault-path">Cofre: Carregando...</p>
           </div>
           <div class="infra-header-actions">
             <button class="btn btn-secondary btn-sm" id="btn-refresh-infra" title="Recarregar do Disco">
-              ↻ Recarregar (30s TTL)
+              ↻ Atualizar Catálogo
             </button>
             <button class="btn btn-outline btn-sm" id="btn-config-vault">
-              ⚙️ Configurar Vault
+              ⚙️ Caminho do Vault
             </button>
           </div>
         </div>
@@ -267,35 +288,27 @@
         </div>
 
         <!-- Linha de Métricas Rápidas -->
-        <div class="infra-metrics-row" id="infra-metrics-container">
-          <!-- Gerado via JS: Total Hosts, Portas Ativas, Colisões, Ambientes -->
-        </div>
+        <div class="infra-metrics-row" id="infra-metrics-container"></div>
 
         <!-- Gráficos de Distribuição (CSS Flexbox nativo) -->
         <div class="infra-distribution-grid">
           <div class="dist-card">
-            <div class="dist-header">
-              <span class="dist-icon">🖥️</span> Distribuição por Tipo de Host
-            </div>
+            <div class="dist-header">Distribuição por Tipo de Recurso</div>
             <div class="dist-bars" id="dist-types-bars"></div>
           </div>
           <div class="dist-card">
-            <div class="dist-header">
-              <span class="dist-icon">🐧</span> Distribuição por Sistema Operacional
-            </div>
+            <div class="dist-header">Distribuição por Sistema Operacional</div>
             <div class="dist-bars" id="dist-os-bars"></div>
           </div>
           <div class="dist-card">
-            <div class="dist-header">
-              <span class="dist-icon">🏢</span> Distribuição por Entidade / Unidade
-            </div>
+            <div class="dist-header">Distribuição por Entidade</div>
             <div class="dist-bars" id="dist-entity-bars"></div>
           </div>
         </div>
 
         <!-- Matriz de Portas Declaradas vs Projetos -->
         <div class="infra-section-title">
-          <span>⚡ MATRIZ DE PORTAS DE REDE (HOST / CONTÊINER)</span>
+          <span>MATRIZ DE PORTAS DE REDE (VAULT HOSTS ↔ DOCKER COMPOSE)</span>
         </div>
         <div class="port-matrix-wrapper">
           <table class="port-matrix-table" id="port-matrix-table">
@@ -304,21 +317,209 @@
                 <th style="width: 120px;">Porta Host</th>
                 <th>Serviços / Projetos Vinculados</th>
                 <th>Origem</th>
-                <th style="width: 140px;">Status</th>
+                <th style="width: 140px;">Diagnóstico</th>
               </tr>
             </thead>
             <tbody id="port-matrix-body">
-              <tr><td colspan="4" class="muted-text">Carregando portas...</td></tr>
+              <tr><td colspan="4" class="muted-text">Carregando matriz de portas...</td></tr>
             </tbody>
           </table>
         </div>
 
         <!-- Deck Grid de Hosts -->
         <div class="infra-section-title">
-          <span>📦 CATÁLOGO DE HOSTS & SERVIDORES CADASTRADOS</span>
+          <span>CATÁLOGO DE SERVIDORES &amp; AMBIENTES DECLARADOS (02_RECURSOS_E_INFRA)</span>
         </div>
-        <div class="infra-deck-grid" id="infra-deck-container">
-          <!-- Cards gerados via JS -->
+        <div class="infra-deck-grid" id="infra-deck-container"></div>
+      </section>
+
+      <!-- Main Vault & Multi-Entity Observability View -->
+      <section class="infra-view hidden" id="view-vault">
+        <div class="infra-header-card">
+          <div class="infra-header-left">
+            <div class="title-row">
+              <h2>Observabilidade do Main Vault &amp; Visão Executiva por Entidade</h2>
+              <span class="badge-declarative mono-text" id="vault-banner-status">SNAPSHOT RAM</span>
+            </div>
+            <p class="infra-subtitle mono-text" id="vault-banner-meta">Contrato: vault_schemas.json • Carregando snapshot...</p>
+          </div>
+          <div class="infra-header-actions">
+            <button class="btn btn-secondary btn-sm" id="btn-refresh-vault" title="Forçar Reindexação do Main Vault">
+              ↻ Reindexar Agora
+            </button>
+          </div>
+        </div>
+
+        <!-- Callout de Diagnóstico caso o mount G:\ esteja indisponível no container -->
+        <div class="vault-diagnostic-callout hidden" id="vault-unavailable-callout">
+          <div class="callout-indicator"></div>
+          <div class="callout-body">
+            <h4>Volume <code>/main_vault</code> indisponível ou não sincronizado no ambiente atual</h4>
+            <p>O observador verificou que os 4 domínios obrigatórios (<code>01_Projetos</code>, <code>02_Recursos_e_Infra</code>, <code>04_Arquitetura_ADRs</code>, <code>05_Areas</code>) não estão acessíveis em <code>/main_vault</code>. No Windows com Docker Desktop (WSL2), isso ocorre se o drive virtual <code>G:\</code> (Google Drive) foi montado após a inicialização do Docker. Reinicie o Docker Desktop com o <code>G:\</code> ativo ou execute localmente via <code>uv run python ui/app.py</code>.</p>
+          </div>
+        </div>
+
+        <!-- Barra Executiva de Seleção de Entidade -->
+        <div class="entity-filter-bar" id="vault-entity-chips"></div>
+
+        <!-- Linha de KPIs Executivos -->
+        <div class="infra-metrics-row" id="vault-metrics-container"></div>
+
+        <!-- Barra de Sub-Navegação de Domínios + Busca Instantânea -->
+        <div class="vault-workbench-toolbar">
+          <div class="vault-subnav" id="vault-subnav" role="tablist" aria-label="Filtrar domínio do Vault">
+            <button type="button" class="vault-subnav-btn active" data-vault-tab="all">
+              Todos os Domínios <span class="subnav-count mono-text" id="subnav-count-all">0</span>
+            </button>
+            <button type="button" class="vault-subnav-btn" data-vault-tab="projects">
+              01_Projetos (N:1) <span class="subnav-count mono-text" id="subnav-count-projects">0</span>
+            </button>
+            <button type="button" class="vault-subnav-btn" data-vault-tab="adrs">
+              04_ADRs <span class="subnav-count mono-text" id="subnav-count-adrs">0</span>
+            </button>
+            <button type="button" class="vault-subnav-btn" data-vault-tab="infra">
+              02_Infra <span class="subnav-count mono-text" id="subnav-count-infra">0</span>
+            </button>
+            <button type="button" class="vault-subnav-btn" data-vault-tab="areas">
+              05_Areas <span class="subnav-count mono-text" id="subnav-count-areas">0</span>
+            </button>
+            <button type="button" class="vault-subnav-btn" data-vault-tab="audit">
+              Auditoria Schema <span class="subnav-count mono-text" id="subnav-count-audit">0</span>
+            </button>
+          </div>
+
+          <div class="vault-toolbar-filters">
+            <label class="vault-toggle-label" title="Exibir apenas itens com divergência ou aviso contratual">
+              <input type="checkbox" id="vault-only-divergences">
+              <span>Somente divergências/alertas</span>
+            </label>
+            <input type="text" id="vault-search-input" class="search-input vault-search-input" placeholder="Filtrar notas, caminhos, ADRs ou portas...">
+          </div>
+        </div>
+
+        <!-- 1. 01_Projetos + Reconciliação N:1 e Matriz de Divergência -->
+        <div class="vault-domain-section" data-vault-section="projects">
+          <div class="infra-section-title">
+            <span>01_PROJETOS — RECONCILIAÇÃO N:1 &amp; MATRIZ BINÁRIA DE DIVERGÊNCIA</span>
+            <span class="section-meta-pill mono-text">status_mismatch • missing_workspace • stale_sync</span>
+          </div>
+          <div class="port-matrix-wrapper">
+            <table class="port-matrix-table">
+              <thead>
+                <tr>
+                  <th>Projeto / Ficha no Vault</th>
+                  <th>Entidade</th>
+                  <th>Status Vault</th>
+                  <th>Vínculo Repo Local / Cockpit</th>
+                  <th>Estado Git (Informativo)</th>
+                  <th>Portas (Vault vs Compose)</th>
+                  <th>Divergências Binárias</th>
+                </tr>
+              </thead>
+              <tbody id="vault-projects-body">
+                <tr><td colspan="7" class="muted-text">Carregando projetos do vault...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 2. 04_Arquitetura_ADRs -->
+        <div class="vault-domain-section" data-vault-section="adrs">
+          <div class="infra-section-title">
+            <span>04_ARQUITETURA_ADRS — DECISÕES ARQUITETURAIS</span>
+            <span class="section-meta-pill mono-text">Isento de alerta de idade</span>
+          </div>
+          <div class="port-matrix-wrapper">
+            <table class="port-matrix-table">
+              <thead>
+                <tr>
+                  <th style="width: 120px;">Código ADR</th>
+                  <th>Título &amp; Caminho Relativo</th>
+                  <th>Entidade</th>
+                  <th style="width: 130px;">Data</th>
+                  <th style="width: 180px;">Status</th>
+                  <th style="width: 160px;">Contrato</th>
+                </tr>
+              </thead>
+              <tbody id="vault-adrs-body">
+                <tr><td colspan="6" class="muted-text">Carregando ADRs...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 3. 02_Recursos_e_Infra -->
+        <div class="vault-domain-section" data-vault-section="infra">
+          <div class="infra-section-title">
+            <span>02_RECURSOS_E_INFRA — FICHAS DE RECURSOS E ESPECIFICAÇÕES TÉCNICAS</span>
+            <span class="section-meta-pill mono-text">Inclui isenções declarativas</span>
+          </div>
+          <div class="port-matrix-wrapper">
+            <table class="port-matrix-table">
+              <thead>
+                <tr>
+                  <th>Recurso / Especificação</th>
+                  <th>Tipo Documental</th>
+                  <th>Entidade</th>
+                  <th>Status</th>
+                  <th>Portas Extraídas</th>
+                  <th>Contrato</th>
+                </tr>
+              </thead>
+              <tbody id="vault-infra-body">
+                <tr><td colspan="6" class="muted-text">Carregando recursos de infraestrutura...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 4. 05_Areas (Somente Metadados) -->
+        <div class="vault-domain-section" data-vault-section="areas">
+          <div class="infra-section-title">
+            <span>05_AREAS — GOVERNANÇA DE DOSSIÊS E PONTES</span>
+            <span class="privacy-shield-badge">🔒 Projeção Fechada (AREAS_SAFE_FIELDS — Corpo e Caminho Drive Ocultos)</span>
+          </div>
+          <div class="port-matrix-wrapper">
+            <table class="port-matrix-table">
+              <thead>
+                <tr>
+                  <th>Ficha / Documento</th>
+                  <th>Área</th>
+                  <th>Entidade</th>
+                  <th>Tipo</th>
+                  <th>Frontmatter</th>
+                  <th>Estado da Ponte</th>
+                  <th>Contrato</th>
+                </tr>
+              </thead>
+              <tbody id="vault-areas-body">
+                <tr><td colspan="7" class="muted-text">Carregando metadados de 05_Areas...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 5. Auditoria de Contratos e Avisos (scan_errors) -->
+        <div class="vault-domain-section" data-vault-section="audit">
+          <div class="infra-section-title">
+            <span>AUDITORIA DE CONTRATOS &amp; AVISOS DE VARREDURA (VAULT_SCHEMAS.JSON)</span>
+          </div>
+          <div class="port-matrix-wrapper">
+            <table class="port-matrix-table">
+              <thead>
+                <tr>
+                  <th style="width: 110px;">Severidade</th>
+                  <th>Domínio</th>
+                  <th>Arquivo Relativo</th>
+                  <th>Tipo</th>
+                  <th>Detalhe Sanitizado</th>
+                </tr>
+              </thead>
+              <tbody id="vault-errors-body">
+                <tr><td colspan="5" class="muted-text">Nenhum erro ou aviso registrado.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
     </main>
@@ -328,25 +529,22 @@
   <div class="modal-overlay" id="modal-add-project" style="display: none;">
     <div class="modal-card modal-large">
       <div class="modal-header">
-        <h2>Ingestão de Projeto do Windows</h2>
+        <h2>Ingestão de Projeto Local</h2>
         <button class="close-btn" data-close-modal="modal-add-project">&times;</button>
       </div>
 
       <div class="ingest-modal-body">
-        <!-- Input nativo de pasta do Windows oculto -->
         <input type="file" id="native-folder-picker" webkitdirectory directory multiple style="display: none;">
 
-        <!-- Área Principal de Seleção de Pasta do Windows -->
         <div class="ingest-picker-zone" id="ingest-picker-zone">
           <div class="picker-icon">📂</div>
-          <h3>Buscar Pasta do Windows</h3>
-          <p class="picker-desc">Abra o Windows Explorer e selecione a pasta de qualquer projeto no seu computador.</p>
+          <h3>Selecionar Diretório do Projeto</h3>
+          <p class="picker-desc">Escolha a pasta de qualquer projeto no Windows Explorer para indexar sua documentação e arquitetura.</p>
           <button type="button" class="btn btn-primary btn-lg" id="btn-trigger-picker">
-            🗂️ Selecionar Pasta no Windows...
+            Selecionar Pasta no Windows...
           </button>
         </div>
 
-        <!-- Painel de Feedback da Ingestão (aparece assim que a pasta for selecionada) -->
         <div class="ingest-selected-card" id="ingest-selected-card" style="display: none;">
           <div class="ingest-card-header">
             <span class="badge-success">✓ Pasta Selecionada</span>
@@ -372,7 +570,7 @@
           <div class="form-row">
             <div class="form-group flex-1">
               <label for="proj-input-version">Versão Inicial</label>
-              <input type="text" id="proj-input-version" class="form-input" value="v1.0.0">
+              <input type="text" id="proj-input-version" class="form-input mono-text" value="v1.0.0">
             </div>
             <div class="form-group flex-2">
               <label for="proj-input-tags">Tags (separadas por vírgula)</label>
@@ -380,11 +578,10 @@
             </div>
           </div>
 
-          <!-- Opção secundária para atalhos do container ou caminho manual -->
           <details class="manual-path-details" style="margin-top: 12px;">
-            <summary style="font-size: 11px; color: var(--text-muted); cursor: pointer; user-select: none;">Opções avançadas (caminho manual / atalhos montados)</summary>
+            <summary>Opções avançadas (caminho manual / atalhos montados)</summary>
             <div class="form-group" style="margin-top: 8px;">
-              <input type="text" id="proj-input-path" class="form-input" placeholder="Opcional: C:\Docker\meu-projeto ou meu-projeto">
+              <input type="text" id="proj-input-path" class="form-input mono-text" placeholder="Opcional: C:\Docker\meu-projeto ou meu-projeto">
               <div id="discovered-projects-chips" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;"></div>
             </div>
           </details>
@@ -392,7 +589,7 @@
           <div class="modal-footer" style="margin-top: 20px;">
             <button type="button" class="btn btn-secondary" data-close-modal="modal-add-project">Cancelar</button>
             <button type="submit" class="btn btn-primary" id="btn-submit-ingest" disabled>
-              ⚡ Concluir Ingestão do Projeto
+              Concluir Registro do Projeto
             </button>
           </div>
         </form>
@@ -409,39 +606,39 @@
       </div>
       <form id="form-note">
         <input type="hidden" id="note-input-id">
-        <div class="form-row">
-          <div class="form-group flex-2">
-            <label for="note-input-title">Título da Melhoria (*)</label>
-            <input type="text" id="note-input-title" class="form-input" required placeholder="Ex: Migrar pooling para Redis Cluster">
-          </div>
-          <div class="form-group flex-1">
-            <label for="note-input-status">Status</label>
-            <select id="note-input-status" class="form-input">
-              <option value="idea">Ideia</option>
-              <option value="planned">Planejada</option>
-              <option value="in_review">Em Revisão</option>
-              <option value="incorporated">Incorporada</option>
-            </select>
-          </div>
+        <div class="form-group">
+          <label for="note-input-title">Título da Melhoria / Débito Técnico (*)</label>
+          <input type="text" id="note-input-title" class="form-input" required placeholder="Ex: Refatorar autenticação JWT">
         </div>
         <div class="form-row">
           <div class="form-group flex-1">
-            <label for="note-input-version-target">Versão Alvo</label>
-            <input type="text" id="note-input-version-target" class="form-input" placeholder="Ex: v1.1.0">
+            <label for="note-input-status">Estágio no Ledger</label>
+            <select id="note-input-status" class="form-input">
+              <option value="idea">💡 Ideia / Rascunho</option>
+              <option value="planned">📅 Planejada</option>
+              <option value="in_review">🔍 Em Revisão</option>
+              <option value="incorporated">✅ Incorporada (Pronta p/ Release)</option>
+            </select>
           </div>
-          <div class="form-group flex-2">
-            <label for="note-input-target-files">Arquivos Alvo (separados por vírgula)</label>
-            <input type="text" id="note-input-target-files" class="form-input" placeholder="app/db.py, config.py">
+          <div class="form-group flex-1">
+            <label for="note-input-version-target">Versão Alvo</label>
+            <input type="text" id="note-input-version-target" class="form-input mono-text" placeholder="Ex: v1.1.0">
           </div>
         </div>
         <div class="form-group">
-          <label for="note-input-content">Descrição e Detalhamento (Markdown)</label>
-          <textarea id="note-input-content" class="form-textarea" rows="6" placeholder="Explique a motivação e os critérios de aceite..."></textarea>
+          <label for="note-input-target-files">Arquivos Impactados (separados por vírgula)</label>
+          <input type="text" id="note-input-target-files" class="form-input mono-text" placeholder="src/auth.py, docs/ARCHITECTURE.md">
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-danger btn-sm" id="btn-delete-note" style="display: none; margin-right: auto;">Excluir Nota</button>
-          <button type="button" class="btn btn-secondary" data-close-modal="modal-note">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-save-note">Salvar Nota</button>
+        <div class="form-group">
+          <label for="note-input-content">Especificação / Contexto Técnico (Markdown)</label>
+          <textarea id="note-input-content" class="form-textarea" rows="6" placeholder="Descreva os detalhes da melhoria..."></textarea>
+        </div>
+        <div class="modal-footer modal-footer-between">
+          <button type="button" class="btn btn-danger" id="btn-delete-note" style="display: none;">Excluir Nota</button>
+          <div class="footer-right">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-note">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Salvar no Ledger</button>
+          </div>
         </div>
       </form>
     </div>
@@ -457,8 +654,8 @@
       <form id="form-version">
         <div class="form-group">
           <label for="version-input-new">Novo Identificador de Versão (*)</label>
-          <input type="text" id="version-input-new" class="form-input" required placeholder="Ex: v1.1.0">
-          <span class="form-help">Atualizará a versão canônica do projeto no registro do OS.</span>
+          <input type="text" id="version-input-new" class="form-input mono-text" required placeholder="Ex: v1.1.0">
+          <span class="form-help">Atualizará a versão canônica do projeto no registro do Cockpit.</span>
         </div>
         <div class="version-preview-notes" id="version-incorporated-notes-preview">
           <h4>Notas Prontas / Incorporadas:</h4>
@@ -479,14 +676,14 @@
         <div class="modal-header-title" style="display: flex; align-items: center; gap: 8px;">
           <span class="diagram-type-pill" id="fs-diagram-type">flowchart</span>
           <h2 id="fs-diagram-title" style="margin: 0; font-size: 14px;">Visualizador de Diagrama</h2>
-          <span class="source-file" id="fs-diagram-source" style="font-size: 11px;"></span>
+          <span class="source-file mono-text" id="fs-diagram-source" style="font-size: 11px;"></span>
         </div>
         <div class="diagram-toolbar-controls">
-          <button type="button" class="diagram-tool-btn" id="btn-fs-zoom-out" title="Diminuir Zoom">🔍−</button>
-          <span class="zoom-level-badge" id="fs-zoom-badge">100%</span>
-          <button type="button" class="diagram-tool-btn" id="btn-fs-zoom-in" title="Aumentar Zoom">🔍+</button>
+          <button type="button" class="diagram-tool-btn" id="btn-fs-zoom-out" title="Diminuir Zoom">−</button>
+          <span class="zoom-level-badge mono-text" id="fs-zoom-badge">100%</span>
+          <button type="button" class="diagram-tool-btn" id="btn-fs-zoom-in" title="Aumentar Zoom">+</button>
           <button type="button" class="diagram-tool-btn" id="btn-fs-zoom-reset" title="Ajustar ao tamanho">Ajustar</button>
-          <button type="button" class="diagram-tool-btn" id="btn-fs-copy-code" title="Copiar código Mermaid">📋 Copiar</button>
+          <button type="button" class="diagram-tool-btn" id="btn-fs-copy-code" title="Copiar código Mermaid">Copiar</button>
           <button class="close-btn" data-close-modal="modal-diagram-fullscreen">&times;</button>
         </div>
       </div>
@@ -501,14 +698,14 @@
   <div class="modal-overlay" id="modal-config-vault" style="display: none; z-index: 1040;">
     <div class="modal-card">
       <div class="modal-header">
-        <h2>Configurar Vault de Infraestrutura</h2>
+        <h2>Configurar Caminho do Vault (02_Recursos_e_Infra)</h2>
         <button class="close-btn" data-close-modal="modal-config-vault">&times;</button>
       </div>
       <form id="form-config-vault">
         <div class="form-group" style="margin-top: 16px;">
           <label for="input-vault-path">Caminho da Pasta de Recursos (*)</label>
-          <input type="text" id="input-vault-path" class="form-input" required placeholder="Ex: G:\Meu Drive\main_vault\02_Recursos_e_Infra ou /vault">
-          <span class="form-help">Caminho gravado em <code>data/config.json</code> e validado no disco.</span>
+          <input type="text" id="input-vault-path" class="form-input mono-text" required placeholder="Ex: G:\Meu Drive\main_vault\02_Recursos_e_Infra ou /main_vault/02_Recursos_e_Infra">
+          <span class="form-help">Caminho gravado em <code>data/config.json</code> e validado contra travessia de diretório.</span>
         </div>
         <div class="modal-footer" style="margin-top: 20px;">
           <button type="button" class="btn btn-secondary" data-close-modal="modal-config-vault">Cancelar</button>
@@ -519,6 +716,6 @@
   </div>
 
   <!-- Script Principal -->
-  <script src="static/app.js"></script>
+  <script src="static/app.js?v=20261113.2"></script>
 </body>
 </html>

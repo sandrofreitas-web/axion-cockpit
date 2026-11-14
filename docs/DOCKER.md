@@ -1,131 +1,83 @@
-# Guia de Operação com Docker — Axion Cockpit
+# Guia de Operação Docker — Nexus Cockpit
 
-O **Axion Cockpit** foi projetado para execução imediata em contêineres Docker, mantendo seu princípio fundamental de **Zero Dependências de Terceiros** (executa com a biblioteca padrão do Python 3.12 em uma imagem `slim` enxuta).
-
----
-
-## 1. Visão Geral da Arquitetura de Contêiner
-
-```mermaid
-flowchart LR
-    HostBrowser["Navegador do Host\n(http://localhost:4100)"]
-    HostData["Disco do Host\n(./data)"]
-    HostProjects["Diretório de Projetos\n(ex: C:/Docker ou /home/user)"]
-
-    subgraph DockerContainer ["Contêiner Axion Cockpit (porta 4100)"]
-        App["Python Stdlib HTTP Server\n(ui/app.py)"]
-        Scanner["Scanner Passivo & Git\n(ui/scanner.py)"]
-        DataVol[("/app/data")]
-        ProjVol[("/projects ou /mnt/c/...")]
-    end
-
-    HostBrowser -->|"Port Mapping :4100"| App
-    HostData <--->|"Volume Persistente"| DataVol
-    HostProjects -.->|"Volume Read-Only"| ProjVol
-    App --> Scanner
-    Scanner --> ProjVol
-    Scanner --> DataVol
-```
+O **Nexus Cockpit** executa em um container leve baseado em `python:3.12-slim` e expõe sua interface exclusivamente no endereço de loopback do host (`127.0.0.1:4100`).
 
 ---
 
-## 2. Inicialização Rápida com Docker Compose (Recomendado)
+## 1. Build e Inicialização
 
-O método mais simples e completo é utilizar o [docker-compose.yml](file:///C:/Docker/axion-cockpit/docker-compose.yml):
+Na raiz do projeto (`C:\Docker\nexus-cockpit`):
 
-```bash
-# 1. Construir a imagem e iniciar em background
+```powershell
 docker compose up -d --build
-
-# 2. Inspecionar logs em tempo real
-docker compose logs -f
-
-# 3. Verificar status e healthcheck
-docker compose ps
-
-# 4. Parar o serviço
-docker compose down
 ```
 
-A interface estará disponível em: **`http://localhost:4100`**
+Para recriar o container forçando a atualização de mounts e portas:
+
+```powershell
+docker compose up -d --build --force-recreate
+```
+
+Verificação de saúde e bind de porta:
+
+```powershell
+docker inspect --format="{{.State.Health.Status}}" nexus-cockpit
+docker port nexus-cockpit 4100
+```
+
+Saída esperada:
+- Status de saúde: `healthy`
+- Mapeamento de porta: `127.0.0.1:4100`
 
 ---
 
-## 3. Uso Direto via Docker CLI
+## 2. Mapeamento de Volumes (`docker-compose.yml`)
 
-### 3.1. Build da Imagem
-```bash
-docker build -t axion-cockpit:latest .
-```
-
-### 3.2. Executar Contêiner
-```bash
-# Execução simples com persistência do catálogo de dados
-docker run -d \
-  --name axion-cockpit \
-  -p 4100:4100 \
-  -v $(pwd)/data:/app/data \
-  --restart unless-stopped \
-  axion-cockpit:latest
-```
+| Origem no Host | Destino no Container | Modo | Finalidade |
+| :--- | :--- | :---: | :--- |
+| `./ui` | `/app/ui` | `ro` | Código-fonte Python da API e ativos estáticos SPA (`index.html`, `app.js`, `styles.css`) |
+| `./data` | `/app/data` | `rw` | Persistência local do Cockpit (`projects.json`, `config.json`, `notes/`, `ingested/`) |
+| `${PROJECTS_HOST_DIR:-..}` (`C:\Docker`) | `/projects` | `ro` | Inspeção somente leitura da frota de projetos locais |
+| `${NEXUS_VAULT_HOST_DIR:-G:/Meu Drive/main_vault}` | `/main_vault` | `ro` | Leitura somente leitura dos 4 domínios permitidos do `main_vault` |
+| `${DRIVE_PROJECTS_HOST_DIR:-G:/Meu Drive/01 Projetos}` | `/drive_projects` | `ro` | Inspeção somente leitura de repositórios Git residentes no Google Drive |
 
 ---
 
-## 4. Mapeamento de Volumes e Inspeção de Projetos Locais
-
-O Axion Cockpit opera como um **observador passivo** que lê repositórios e arquivos Markdown em disco. Para que o contêiner consiga ler os projetos da sua máquina hospedeira, mapeie os diretórios desejados:
-
-### Cenário A: Mapeando pasta de projetos no Docker Compose
-No arquivo `docker-compose.yml`, defina a variável `PROJECTS_HOST_DIR` ou ajuste o mapeamento:
-
-```yaml
-volumes:
-  - ./data:/app/data
-  # Monta seu diretório de repositórios em modo somente-leitura (ro)
-  - C:/Docker:/projects:ro
-```
-
-Ao cadastrar um projeto na interface web, informe o caminho correspondente dentro do contêiner (ex: `/projects/meu-projeto`).
-
-### Cenário B: Compatibilidade de Caminhos Windows / WSL
-O scanner nativo ([ui/scanner.py](file:///C:/Docker/axion-cockpit/ui/scanner.py)) possui conversão transparente para caminhos montados em `/mnt/{drive}`:
-- Caminho no host Windows: `C:\Docker\meu-projeto`
-- Mapeamento no Docker: `-v C:\Docker:/mnt/c/Docker:ro`
-- O Axion Cockpit resolverá tanto `/mnt/c/Docker/meu-projeto` quanto referências equivalentes sem necessidade de alteração de código.
-
----
-
-## 5. Variáveis de Ambiente
+## 3. Variáveis de Ambiente
 
 | Variável | Valor Padrão | Descrição |
-|---|---|---|
-| `HOST` | `0.0.0.0` (Docker) / `127.0.0.1` (Local) | Interface de rede para bind do socket TCP. |
-| `PORT` | `4100` | Porta TCP onde o servidor responderá requisições. |
-| `PYTHONUNBUFFERED` | `1` | Garante emissão de logs imediata sem buffer no stdout do contêiner. |
-| `PYTHONDONTWRITEBYTECODE` | `1` | Evita criação de arquivos `.pyc` nos volumes montados. |
+| :--- | :--- | :--- |
+| `HOST` | `0.0.0.0` | Interface de escuta interna do processo Python no container |
+| `PORT` | `4100` | Porta HTTP interna e externa (restrita a `127.0.0.1` no host) |
+| `NEXUS_VAULT_ROOT` | `/main_vault` | Caminho da raiz do `main_vault` dentro do container |
+| `NEXUS_VAULT_HOST_DIR` | `G:/Meu Drive/main_vault` | Caminho no host Windows montado em `/main_vault:ro` |
+| `PROJECTS_HOST_DIR` | `..` (`C:\Docker`) | Diretório raiz de projetos no host montado em `/projects:ro` |
+| `DRIVE_PROJECTS_DIR` | `/drive_projects` | Ponto de montagem interno para projetos no Google Drive |
+| `DRIVE_PROJECTS_HOST_DIR` | `G:/Meu Drive/01 Projetos` | Caminho no host Windows montado em `/drive_projects:ro` |
 
 ---
 
-## 6. Healthcheck Integrado
+## 4. Comportamento com Google Drive Desktop (`G:\`) no Windows / WSL2
 
-A imagem possui verificação de integridade nativa via biblioteca padrão do Python, sem depender de ferramentas extras:
+O Google Drive Desktop no Windows monta a unidade `G:\` como um sistema de arquivos virtual (`WinFsp`) no contexto da sessão do usuário:
 
-```dockerfile
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4100/api/projects').read()" || exit 1
-```
-
-Para verificar o status de saúde do contêiner em execução:
-```bash
-docker inspect --format='{{json .State.Health}}' axion-cockpit
-```
+1. **Ordem de Inicialização**: Se o Docker Desktop (WSL2) iniciar antes do Google Drive Desktop montar a letra `G:\`, a VM Linux do Docker não enxergará os subdiretórios reais de `G:\Meu Drive\main_vault`.
+2. **Detecção Segura e Degradação Graciosa**: Quando isso ocorre, o `VaultObserver` detecta que os 4 domínios obrigatórios não estão presentes em `/main_vault`, retorna `vault_status: "unavailable"` (ou preserva o último snapshot válido em memória com `vault_status: "degraded"`) e exibe um callout explicativo na interface web sem interromper o funcionamento do Cockpit.
+3. **Como Sincronizar o Mount no Docker Desktop**:
+   - Certifique-se de que o Google Drive Desktop está aberto e a unidade `G:\` está acessível no Windows Explorer.
+   - Reinicie o Docker Desktop (ou execute `uv run python ui/app.py` diretamente no host Windows para leitura nativa direta de `G:\Meu Drive\main_vault`).
 
 ---
 
-## 7. Execução dos Testes Automatizados no Docker
+## 5. Healthcheck Nativo
 
-Você pode executar toda a suíte de testes unitários isolada dentro do ambiente Docker sem precisar instalar nada no host:
+Tanto o `Dockerfile` quanto o `docker-compose.yml` utilizam o endpoint rápido `GET /api/status` via biblioteca padrão do Python:
 
-```bash
-docker compose run --rm axion-cockpit python -m unittest discover -s tests -p "test_*.py"
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4100/api/status').read()\""]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 5s
 ```

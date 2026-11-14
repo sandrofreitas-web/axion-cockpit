@@ -1,143 +1,98 @@
-# Arquitetura — Axion Cockpit
+# Arquitetura do Sistema — Nexus Cockpit
 
-O **Axion Cockpit** é um console local de observabilidade e gestão operacional para desenvolvedores e arquitetos que gerenciam múltiplos projetos distribuídos no sistema de arquivos.
-
-Este documento formaliza a arquitetura do sistema, seus fluxos de trabalho e seus modelos de persistência desacoplada.
+O **Nexus Cockpit** adota uma arquitetura modular baseada exclusivamente na biblioteca padrão do Python 3.12 (`stdlib`) no backend e Vanilla JavaScript (ES6+) no frontend, preservando rigorosamente o invariante **`NG4` (*Zero Persistent Database*)**.
 
 ---
 
-## 1. Princípios Arquiteturais
-
-1. **Princípio do Observador Passivo**:
-   - O Axion Cockpit não altera o código dos projetos monitorados nem força padrões invasivos.
-   - Não requer agentes nem orquestração ativa rodando dentro dos projetos da frota.
-2. **Zero Drift (Leitura On-Demand)**:
-   - Toda inspeção de documentação é lida sob demanda diretamente do disco em tempo real (<1ms em SSDs locais).
-   - Não são mantidos caches redundantes de especificações técnicas ou diagramas.
-3. **Zero Dependências Externas (Python Stdlib)**:
-   - O backend opera 100% sobre a biblioteca padrão do Python (`http.server`, `socketserver`, `pathlib`, `re`, `subprocess`).
-   - Não necessita de gerenciadores de pacotes (`pip`), frameworks pesados (`FastAPI`, `Django`) ou compiladores de runtime no host.
-4. **Renderização Client-Side**:
-   - O processamento visual de diagramas (`flowchart`, `sequenceDiagram`, `erDiagram`) é executado no navegador do usuário via **Mermaid.js**, com controles dinâmicos de zoom, pan e tela cheia.
-5. **Ledger de Ideias e Débitos Desacoplado**:
-   - Anotações de melhoria e débitos técnicos são salvos em arquivos Markdown com frontmatter YAML leve no diretório do console (`data/notes/{project_id}/`), mantendo o repositório monitorado limpo até a formalização de novas versões.
-
----
-
-## 2. Visão Geral dos Componentes
+## 1. Diagrama de Componentes
 
 ```mermaid
 flowchart TD
-    subgraph Host ["Ambiente do Usuário / Host OS"]
-        TerminalCLI["Terminal / Agente CLI (ex: Orca)"]
-        ProjectsDir["Projetos em Disco (Git Repos, docs, código, compose)"]
-        VaultDir["Knowledge Vault (02_Recursos_e_Infra/*.md)"]
+    subgraph Client["Frontend SPA v2.0 (Browser)"]
+        UI["ui/index.html + ui/static/app.js + ui/static/styles.css"]
+        TabProj["Domínio: Projetos Locais"]
+        TabInfra["Domínio: Infra & Subsistemas"]
+        TabVault["Domínio: Vault & Entidades"]
+        UI --> TabProj
+        UI --> TabInfra
+        UI --> TabVault
     end
 
-    subgraph Axion_Container ["Axion Cockpit (Container Docker / Processo Local)"]
-        subgraph WebClient ["Dashboard Web (Porta 4100)"]
-            TopbarDomains["Alternador de Domínio (Projetos / Infra)"]
-            SPA["SPA Dark Cockpit (HTML5 / Vanilla JS)"]
-            MermaidEngine["Engine Mermaid.js (Client-side Zoom/Pan)"]
-            KanbanNotes["Quadro de Notas & Versão"]
-            InfraDeck["Deck de Hosts & Radar de Portas"]
-        end
-
-        subgraph CoreBackend ["Backend (ui/app.py)"]
-            RESTServer["HTTP REST Server (http.server)"]
-            ScannerEngine["Motor de Scanner Passivo (ui/scanner.py)"]
-            InfraEngine["Scanner de Infra & Subsistemas (ui/infra_scanner.py)"]
-            GitTelemetry["Telemetria Git (subprocess 'git')"]
-            SecurityGuard["Guarda de Caminhos (Anti-Path Traversal)"]
-        end
-
-        subgraph Storage ["Persistência Local (data/)"]
-            ProjectsDB[("projects.json")]
-            ConfigDB[("config.json")]
-            NotesStorage[("notes/{project_id}/*.md")]
-        end
+    subgraph Server["Backend Python 3.12 (ThreadingTCPServer)"]
+        App["ui/app.py (Roteador REST + Segurança CSRF/Loopback)"]
+        Scanner["ui/scanner.py (Project, Git & Mermaid Scanner)"]
+        InfraScanner["ui/infra_scanner.py (Infra & Port Collision Scanner)"]
+        VaultObserver["ui/vault_observer.py (Snapshot Imutável RAM + Reconciliação N:1)"]
+        VaultParser["ui/vault_parser.py (YAML Frontmatter + Schema Validator)"]
     end
 
-    TerminalCLI -.->|"Implementa alterações"| ProjectsDir
-    ProjectsDir <---|Leitura passiva on-demand| ScannerEngine
-    ProjectsDir <---|Portas docker-compose| InfraEngine
-    VaultDir <---|Fichas declarativas Markdown/YAML| InfraEngine
-    ProjectsDir <---|Status e branches| GitTelemetry
-    SPA <-->|"HTTP / JSON REST API"| RESTServer
-    RESTServer --> ScannerEngine
-    RESTServer --> InfraEngine
-    RESTServer --> GitTelemetry
-    RESTServer --> SecurityGuard
-    RESTServer <--> ProjectsDB
-    RESTServer <--> ConfigDB
-    RESTServer <--> NotesStorage
+    subgraph Storage["Persistência Plana & Volumes (:ro)"]
+        DataDir["data/ (projects.json, config.json, notes/, ingested/)"]
+        ProjectsVol["/projects & /drive_projects (:ro)"]
+        MainVault["/main_vault (:ro - 4 Domínios + vault_schemas.json)"]
+    end
+
+    TabProj <-->|REST JSON| App
+    TabInfra <-->|REST JSON| App
+    TabVault <-->|REST JSON| App
+
+    App --> Scanner
+    App --> InfraScanner
+    App --> VaultObserver
+    Scanner --> VaultParser
+    InfraScanner --> VaultParser
+    VaultObserver --> VaultParser
+    VaultObserver --> Scanner
+    VaultObserver --> InfraScanner
+
+    App <--> DataDir
+    Scanner -->|Leitura :ro| ProjectsVol
+    InfraScanner -->|Leitura :ro| MainVault
+    VaultObserver -->|Leitura :ro| MainVault
 ```
 
 ---
 
-## 3. Fluxo de Inspeção e Telemetria
+## 2. Módulos do Backend (`ui/`)
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Dev as Desenvolvedor / Operador
-    participant UI as Dashboard Web (SPA)
-    participant API as Axion Cockpit API (app.py)
-    participant Scan as Scanner Passivo (scanner.py)
-    participant Disk as Sistema de Arquivos Local (Projeto)
+### 2.1. `ui/app.py` — Servidor HTTP Concorrente e Hardening Local
+- Baseado em `socketserver.ThreadingTCPServer` e `http.server.SimpleHTTPRequestHandler`.
+- Serve os ativos estáticos de `ui/` com headers `Cache-Control: no-store, no-cache, must-revalidate, max-age=0` para evitar cache obsoleto no navegador.
+- **Endurecimento de Segurança Local**:
+  - Container exposto exclusivamente em `127.0.0.1:4100` (loopback).
+  - Respostas HTTP e `OPTIONS` não emitem `Access-Control-Allow-Origin: *`.
+  - `_validate_mutation_security()` protege todas as rotas mutáveis (`POST`, `PUT`, `DELETE`), bloqueando requisições com `Sec-Fetch-Site: cross-site` ou `Origin` não-loopback (`HTTP 403`) e exigindo `Content-Type: application/json` (`HTTP 415`).
 
-    Dev->>UI: Clica em um Projeto cadastrado
-    UI->>API: GET /api/projects/{id}/docs
-    API->>Scan: scan_project_docs(project_path)
-    Scan->>Disk: Verifica existência e permissão de caminho
-    Scan->>Disk: Lê ARCHITECTURE.md, TECHSPEC.md, README.md (<2MB)
-    Scan->>Disk: Executa 'git -C <path> branch --show-current'
-    Scan->>Disk: Executa 'git -C <path> status --porcelain'
-    Scan->>Disk: Executa 'git -C <path> log -1'
-    Scan-->>API: Consolida texto bruto, blocos Mermaid e telemetria Git
-    API-->>UI: Retorna JSON consolidado (200 OK)
-    UI->>UI: Interpreta Markdown e renderiza blocos Mermaid
-    UI-->>Dev: Exibe Techspecs, Diagramas Interativos e Status Git
-```
+### 2.2. `ui/vault_parser.py` — Parser Zero-Dependency de YAML Frontmatter
+- Carrega o manifesto declarativo compartilhado `scripts/harness/vault_schemas.json` (com fallback idêntico embutido em `DEFAULT_VAULT_SCHEMAS`).
+- Oferece dois modos de análise:
+  - `parse_frontmatter_strict(text)`: Remove UTF-8 BOM (`\ufeff`), exige delimitadores `---` de abertura e fechamento, decodifica escapes (`\\`, `\"`, `\n`, `\t`), processa listas inline `[a, b]` e listas em bloco `- item`, e rejeita estruturas YAML aninhadas ou frontmatter não fechado.
+  - `parse_frontmatter_lenient(text)`: Extração tolerante para leitura de documentos de projetos externos.
+- `validate_vault_note(...)`: Valida campos obrigatórios (`required_fields`), tipos e `status_enum` por domínio, respeitando isenções declarativas (`exempt_files`) e emitindo avisos não-bloqueantes (`warnings`) para notas auxiliares sem frontmatter em `05_Areas`.
 
----
+### 2.3. `ui/vault_observer.py` — Snapshot Imutável em Memória e Reconciliação N:1
+- Mantém um único dicionário imutável (`_snapshot`) em memória, substituído por referência atômica sob `threading.Lock` (TTL padrão de 60s).
+- **Allowlist Estrita de Domínios**:
+  - Varre apenas `01_Projetos`, `02_Recursos_e_Infra`, `04_Arquitetura_ADRs` e `05_Areas`.
+  - Ignora imediatamente qualquer diretório em `FORBIDDEN_DIR_NAMES` (`chaves_ssh`, `.obsidian`, `.git`, `.agents`, `.vscode`, `.ssh`).
+- **Degradação Graciosa de Estados (`vault_status`)**:
+  - `available`: Os 4 domínios do `main_vault` foram lidos com sucesso.
+  - `degraded`: Ocorreu falha de I/O durante a reindexação (ex.: oscilação do Google Drive Desktop), mas o último snapshot válido em memória foi preservado.
+  - `unavailable`: O volume `/main_vault` não está acessível e ainda não há snapshot prévio carregado.
+- **Projeção Fechada de Privacidade (`AREAS_SAFE_FIELDS`)**:
+  - Notas de `05_Areas` são filtradas no backend através da tupla `AREAS_SAFE_FIELDS` (`rel_path`, `domain`, `entity`, `title`, `area`, `doc_type`, `status`, `frontmatter_status`, `links_status`, `validation_errors`, `size_bytes`, `doc_date`, `indexed_at`). O corpo Markdown e `caminho_drive` jamais são armazenados no snapshot nem serializados na API.
+- **Reconciliação N:1 e Matriz Binária de Divergências (`project_repo_links`)**:
+  - Suporta múltiplas fichas em `01_Projetos` apontando para um mesmo repositório físico (ex.: módulos do ecossistema `SIAE BR`), contabilizando `sibling_modules_count`.
+  - Avalia 3 flags binárias objetivas:
+    1. `status_mismatch`: Nota `Ativo` no vault vinculada a projeto `Pausado`/`Concluído`/`Arquivado` no Cockpit (ou vice-versa).
+    2. `missing_workspace`: Repositório local referenciado na nota não encontrado nos diretórios montados.
+    3. `stale_sync`: Diferença superior a 7 dias entre `ultima_atualizacao` da nota e o último commit Git (ou > 30 dias sem atualização para projetos ativos sem Git).
 
-## 4. Modelo de Entidades e Persistência
+### 2.4. `ui/scanner.py` — Scanner de Projetos Locais, Git e Mermaid
+- Resolve caminhos de projetos locais entre `C:\Docker` (`/projects:ro`), `G:\Meu Drive\01 Projetos` (`/drive_projects:ro`) e diretórios ingeridos (`data/ingested/`), bloqueando diretórios sensíveis do sistema operacional (`DANGEROUS_SYSTEM_PATHS`).
+- Extrai blocos `mermaid` de arquivos `.md`, classificando-os automaticamente entre diagramas de banco de dados (`erDiagram`) e fluxos operacionais (`flowchart`, `sequenceDiagram`, `stateDiagram`, `classDiagram`).
+- Coleta telemetria Git local (`branch`, `is_dirty`, `uncommitted_count`, `recent_commits`, `last_commit_date`) com timeout de 3 segundos.
 
-A persistência do Axion Cockpit é intencionalmente baseada em arquivos planos (`JSON` e `Markdown`), eliminando a necessidade de bancos relacionais ou motores de migração:
-
-```mermaid
-erDiagram
-    PROJECT ||--o{ NOTE : contains
-    PROJECT {
-        string id PK "Identificador único slug"
-        string name "Nome legível do projeto"
-        string path "Caminho absoluto no disco local"
-        string current_version "Versão canônica atual (ex: v1.0.0)"
-        string created_at "Data ISO de cadastro"
-        string[] tags "Categorias e tecnologias"
-    }
-    NOTE {
-        string id PK "Timestamp + slug (ex: 20261031_071000_titulo)"
-        string title "Título da anotação de melhoria"
-        string status "Status: idea | planned | in_review | incorporated"
-        string version_target "Versão alvo prevista (ex: v1.1.0)"
-        string created_at "Data ISO de criação"
-        string[] target_files "Arquivos candidatos a modificação"
-        string body "Corpo explicativo em Markdown"
-    }
-```
-
----
-
-## 5. Especificação Técnica (Techspec)
-
-| Propriedade | Especificação |
-|---|---|
-| **Runtime Backend** | Python 3.10+ (Standard Library) |
-| **Dependências pip** | Zero (`pip install` desnecessário) |
-| **Porta Padrão** | `4100` (TCP) |
-| **Host Bind** | `127.0.0.1` (local) ou `0.0.0.0` (Docker) |
-| **Frontend** | Vanilla JavaScript (ES6+), CSS Grid/Flexbox moderno, Mermaid.js v10 via CDN |
-| **Arquivos de Dados** | `data/projects.json` e `data/notes/{project_id}/*.md` |
-| **Formatos Reconhecidos** | `ARCHITECTURE.md`, `TECHSPEC.md`, `WORKFLOWS.md`, `DATABASE.md`, `README.md` |
+### 2.5. `ui/infra_scanner.py` — Catálogo Passivo de Infraestrutura e Portas
+- Indexa as fichas de servidores em `02_Recursos_e_Infra` com cache TTL de 30s, ignorando documentos de especificação geral listados em `exempt_files` (`HOME_LAB_SPECIFICATIONS.md`, `Oracle.md`).
+- Cruza as portas declaradas nos servidores (`servicos_ativos`) com as portas mapeadas nos arquivos `docker-compose.yml` dos projetos locais para alimentar o Radar de Colisão de Portas.

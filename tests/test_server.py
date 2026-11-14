@@ -1,26 +1,33 @@
 #!/usr/bin/env python3
 """
-test_server.py — Suíte de testes automatizados para o Axion Cockpit.
+test_server.py — Suíte de testes automatizados para o Nexus Cockpit.
 Valida o scanner de diretórios, extração de blocos Mermaid, proteção contra path traversal
-e persistência de notas em Markdown com frontmatter.
+e persistência de notas em Markdown com frontmatter (com roundtrip de caracteres escapados).
 """
 
-import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-# Adiciona o diretório ui/ ao sys.path
 TEST_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TEST_DIR.parent
 sys.path.insert(0, str(REPO_ROOT / "ui"))
 
-import scanner
 import app
+import scanner
 
 
 class TestProjectOSScanner(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.temp_dir.name).resolve()
+        app.configure_runtime(data_dir=self.tmp_path / "data", warmup=False)
+
+    def tearDown(self):
+        app.configure_runtime(data_dir=REPO_ROOT / "data", warmup=False)
+        self.temp_dir.cleanup()
+
     def test_path_validation_empty(self):
         valid, resolved, err = scanner.is_valid_project_path("")
         self.assertFalse(valid)
@@ -57,12 +64,17 @@ class TestProjectOSScanner(unittest.TestCase):
         self.assertIsInstance(result["folders"], list)
 
     def test_ingested_project_resolution(self):
-        # Simula diretório de ingestão
         ingested_dir = app.INGESTED_BASE_DIR / "test-ingested-proj"
         ingested_dir.mkdir(parents=True, exist_ok=True)
-        (ingested_dir / "README.md").write_text("# Test Ingested\n```mermaid\nflowchart TD\nA-->B\n```", encoding="utf-8")
+        (ingested_dir / "README.md").write_text(
+            "# Test Ingested\n```mermaid\nflowchart TD\nA-->B\n```", encoding="utf-8"
+        )
 
-        proj_entry = {"id": "test-ingested-proj", "name": "Test Ingested", "path": "test-ingested-proj"}
+        proj_entry = {
+            "id": "test-ingested-proj",
+            "name": "Test Ingested",
+            "path": "test-ingested-proj",
+        }
         valid, resolved, err = app.resolve_project_path(proj_entry)
         self.assertTrue(valid)
         self.assertEqual(resolved, ingested_dir)
@@ -71,16 +83,15 @@ class TestProjectOSScanner(unittest.TestCase):
         self.assertEqual(len(docs["workflows"]), 1)
         self.assertIn("Test Ingested", docs["primary_doc"])
 
-        # Limpeza
-        import shutil
-        shutil.rmtree(ingested_dir, ignore_errors=True)
-
     def test_path_validation_dangerous_system_paths(self):
         for danger in scanner.DANGEROUS_SYSTEM_PATHS:
             if danger.exists():
                 valid, resolved, err = scanner.is_valid_project_path(str(danger))
                 self.assertFalse(valid, f"Caminho restrito não foi bloqueado: {danger}")
-                self.assertIn("restrito", err.lower())
+                self.assertTrue(
+                    "restrito" in err.lower() or "oculto" in err.lower(),
+                    f"Mensagem inesperada: {err}",
+                )
 
     def test_mermaid_extraction(self):
         sample_md = """
@@ -111,6 +122,8 @@ erDiagram
         self.assertIn("branch", telemetry)
         self.assertIn("is_dirty", telemetry)
         self.assertIn("uncommitted_count", telemetry)
+        self.assertIn("last_commit", telemetry)
+        self.assertIn("last_commit_iso", telemetry)
 
 
 class TestProjectOSNotesStorage(unittest.TestCase):
@@ -121,14 +134,14 @@ class TestProjectOSNotesStorage(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def test_note_roundtrip(self):
+    def test_note_roundtrip_with_escapes(self):
         note_file = self.test_path / "test_note.md"
         meta = {
             "id": "test_note",
-            "title": "Minha Nota de Teste",
+            "title": 'Minha "Nota" em C:\\Docker\\nexus-cockpit',
             "status": "planned",
             "version_target": "v1.2.0",
-            "target_files": ["app.py", "scanner.py"],
+            "target_files": ["ui\\app.py", 'ui/"scanner".py'],
         }
         body = "### Descrição\nEsta é uma nota de teste automatizado."
 
@@ -137,10 +150,10 @@ class TestProjectOSNotesStorage(unittest.TestCase):
 
         parsed = app.parse_markdown_note(note_file)
         self.assertEqual(parsed["id"], "test_note")
-        self.assertEqual(parsed["title"], "Minha Nota de Teste")
+        self.assertEqual(parsed["title"], 'Minha "Nota" em C:\\Docker\\nexus-cockpit')
         self.assertEqual(parsed["status"], "planned")
         self.assertEqual(parsed["version_target"], "v1.2.0")
-        self.assertEqual(parsed["target_files"], ["app.py", "scanner.py"])
+        self.assertEqual(parsed["target_files"], ["ui\\app.py", 'ui/"scanner".py'])
         self.assertIn("Esta é uma nota de teste automatizado.", parsed["content"])
 
     def test_config_persistence(self):

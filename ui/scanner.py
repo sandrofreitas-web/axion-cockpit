@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-scanner.py — Motor de inspeção passiva e extração de documentação em disco para o Axion Cockpit.
-Lê repositórios locais sob demanda sem modificar arquivos nem manter caches redundantes.
+scanner.py — Motor de inspeção passiva, normalização de caminhos e telemetria Git para o Nexus Cockpit.
+Executa 100% na biblioteca padrão do Python.
 """
 
 import os
@@ -18,7 +18,18 @@ DANGEROUS_SYSTEM_PATHS = {
     Path("/var").resolve(),
     Path("/root").resolve(),
     Path("/boot").resolve(),
-    Path.home() / ".ssh",
+    Path("/proc").resolve(),
+    Path("/sys").resolve(),
+    (Path.home() / ".ssh").resolve(),
+}
+
+FORBIDDEN_PATH_SEGMENTS = {
+    "chaves_ssh",
+    ".obsidian",
+    ".git",
+    ".agents",
+    ".vscode",
+    ".ssh",
 }
 
 
@@ -27,18 +38,81 @@ def sanitize_input_path(raw_path: str) -> str:
     if not raw_path:
         return ""
     s = raw_path.strip()
-    # Remove aspas externas (duplas ou simples) mesmo que venham escapadas (ex: \" no início/fim)
-    s = re.sub(r'^(?:\\?["\'])+|(?:\\?["\'])+$', '', s).strip()
-    # Se sobrou contra-barra solta no final devido a escape de aspa Windows
-    if s.endswith('\\') and not s.endswith(':\\'):
-        s = s.rstrip('\\')
+    s = re.sub(r'^(?:\\?["\'])+|(?:\\?["\'])+$', "", s).strip()
+    if s.endswith("\\") and not s.endswith(":\\"):
+        s = s.rstrip("\\")
     return s.strip()
+
+
+def is_mount_populated(mount_dir: Path) -> bool:
+    """Retorna True somente se o ponto de montagem existir, for diretório e contiver ao menos 1 entrada."""
+    try:
+        if not mount_dir.exists() or not mount_dir.is_dir():
+            return False
+        return any(mount_dir.iterdir())
+    except Exception:
+        return False
+
+
+def is_non_path_repo_reference(raw_ref: str) -> bool:
+    """
+    Identifica referências de repositorio_local que não são caminhos de diretório
+    (ex.: vazio, 'Incorporado em ...', 'Notebook Dell (192.168.15.176)').
+    """
+    clean = sanitize_input_path(raw_ref)
+    if not clean:
+        return True
+    low = clean.lower()
+    if low.startswith("incorporado em") or low.startswith("incorporado ao"):
+        return True
+    if re.match(r"^[a-zA-Z]:[\\/]", clean) or clean.startswith("/"):
+        return False
+    if "/" in clean or "\\" in clean:
+        return False
+    # Strings descritivas com espaços/parênteses como "Notebook Dell (192.168.15.176)"
+    if " " in clean or "(" in clean or ")" in clean:
+        return True
+    return False
+
+
+def normalize_repo_key(raw_path: str) -> str:
+    """
+    Gera uma chave canônica multiplataforma para reconciliação determinística N:1
+    entre fichas de 01_Projetos e entradas de data/projects.json.
+    """
+    clean = sanitize_input_path(raw_path).replace("\\", "/").strip()
+    if not clean or is_non_path_repo_reference(clean):
+        return ""
+
+    low = clean.lower().rstrip("/")
+
+    # Alias do próprio cockpit
+    if low in ("/app", "c:/docker/nexus-cockpit", "c:/docker/axion-cockpit", "/projects/nexus-cockpit", "/projects/axion-cockpit", "nexus-cockpit", "axion-cockpit"):
+        return "docker/nexus-cockpit"
+
+    # Caminhos no Google Drive (01 Projetos)
+    m_drive = re.match(r"^(?:[a-z]:/meu drive/01 projetos/|/mnt/[a-z]/meu drive/01 projetos/|/drive_projects/)(.+)$", low)
+    if m_drive:
+        return f"drive_projects/{m_drive.group(1).strip('/')}"
+
+    # Caminhos em C:\Docker ou /projects
+    m_docker = re.match(r"^(?:c:/docker/|/mnt/c/docker/|/projects/)(.+)$", low)
+    if m_docker:
+        sub = m_docker.group(1).strip("/")
+        if sub == "axion-cockpit":
+            sub = "nexus-cockpit"
+        return f"docker/{sub}"
+
+    # Caminhos relativos simples de data/projects.json (ex.: "igreja-crist-evan", "projects/Project_Siaebr")
+    if not re.match(r"^[a-z]:/", low) and not low.startswith("/"):
+        return f"docker/{low.strip('/')}"
+
+    return low
 
 
 def resolve_cross_platform_path(raw_path: str) -> Path:
     """
-    Resolve caminhos de forma transparente entre Windows, Docker (volume /projects) e Linux/WSL.
-    Suporta remoção automática de aspas, mapeamento do volume Docker e caminhos relativos.
+    Resolve caminhos de forma transparente entre Windows, Docker (volumes /projects e /drive_projects) e Linux/WSL.
     """
     clean_str = sanitize_input_path(raw_path)
     if not clean_str:
@@ -54,23 +128,28 @@ def resolve_cross_platform_path(raw_path: str) -> Path:
     except Exception:
         pass
 
-    # 2. Se estiver rodando no Linux / Container Docker e receber caminho Windows (ex: C:/Docker/...)
+    # 2. Se estiver rodando no Linux / Container Docker e receber caminho Windows
     if os.name != "nt":
-        # Remove letra de unidade Windows (ex: 'C:' ou 'c:/')
         clean_no_drive = re.sub(r"^[a-zA-Z]:[\\/]*", "", clean).lstrip("/")
         parts = [p for p in clean_no_drive.split("/") if p]
 
+        # Prioridade A0: Volume de projetos do Google Drive (/drive_projects)
+        drive_projects_env = os.environ.get("DRIVE_PROJECTS_DIR", "/drive_projects")
+        drive_projects_dir = Path(drive_projects_env)
+        if re.match(r"^[gG]:/meu drive/01 projetos(?:/|$)", clean, re.IGNORECASE):
+            rel_after = re.sub(r"^[gG]:/meu drive/01 projetos/?", "", clean, flags=re.IGNORECASE).strip("/")
+            if is_mount_populated(drive_projects_dir):
+                return (drive_projects_dir / rel_after).resolve() if rel_after else drive_projects_dir.resolve()
+            return drive_projects_dir / rel_after if rel_after else drive_projects_dir
+
         # Prioridade A: Volume montado no Docker (/projects)
-        projects_dir = Path("/projects")
+        projects_dir = Path(os.environ.get("PROJECTS_CONTAINER_DIR", "/projects"))
         if projects_dir.exists() and projects_dir.is_dir():
-            # Tenta encontrar correspondência de subcaminho da direita para a esquerda:
-            # Exemplo: 'C:/Docker/axion-cockpit' -> testa '/projects/Docker/axion-cockpit' e depois '/projects/axion-cockpit'
             for i in range(len(parts)):
                 candidate = projects_dir.joinpath(*parts[i:])
                 if candidate.exists():
                     return candidate.resolve()
 
-            # Se for caminho relativo simples dentro de /projects
             candidate_rel = projects_dir / clean.lstrip("/")
             if candidate_rel.exists():
                 return candidate_rel.resolve()
@@ -79,7 +158,7 @@ def resolve_cross_platform_path(raw_path: str) -> Path:
         app_dir = Path("/app")
         if app_dir.exists() and parts:
             last_part = parts[-1].lower()
-            if last_part in ("app", "axion-cockpit") or app_dir.name.lower() == last_part:
+            if last_part in ("app", "nexus-cockpit", "axion-cockpit") or app_dir.name.lower() == last_part:
                 return app_dir.resolve()
 
         # Prioridade C: Ambiente WSL com /mnt/{drive}
@@ -108,6 +187,105 @@ def resolve_cross_platform_path(raw_path: str) -> Path:
     return Path(clean).resolve()
 
 
+def has_forbidden_segments(raw_or_resolved: str) -> bool:
+    """Detecta segmentos sensíveis (.agents, chaves_ssh, .obsidian, .git, .env*, etc.)."""
+    norm = raw_or_resolved.replace("\\", "/")
+    for seg in norm.split("/"):
+        s = seg.strip()
+        if not s or s in (".", ".."):
+            continue
+        low = s.lower()
+        if low in FORBIDDEN_PATH_SEGMENTS or low.startswith(".env"):
+            return True
+        if s.startswith(".") and low not in (".well-known",):
+            return True
+    return False
+
+
+def is_valid_project_path(
+    raw_path: str,
+    allowed_roots: Optional[List[Path]] = None,
+) -> Tuple[bool, Optional[Path], Optional[str]]:
+    """
+    Valida e normaliza o caminho de um projeto ou diretório configurado,
+    prevenindo path traversal, symlinks para áreas sensíveis e acesso a pastas restritas.
+    """
+    if not raw_path or not raw_path.strip():
+        return False, None, "Caminho do projeto não pode ser vazio."
+
+    clean_in = sanitize_input_path(raw_path)
+    if has_forbidden_segments(clean_in):
+        return False, None, "Acesso a diretório oculto ou sensível restrito."
+
+    try:
+        resolved = resolve_cross_platform_path(clean_in)
+    except Exception as e:
+        return False, None, f"Caminho inválido: {str(e)}"
+
+    if not resolved.exists():
+        return False, resolved, "Diretório não encontrado no sistema de arquivos local."
+
+    if not resolved.is_dir():
+        return False, resolved, "O caminho informado não é um diretório."
+
+    try:
+        real_resolved = resolved.resolve()
+    except Exception:
+        real_resolved = resolved
+
+    if has_forbidden_segments(str(real_resolved)):
+        return False, real_resolved, "Acesso a diretório oculto ou sensível restrito."
+
+    for danger in DANGEROUS_SYSTEM_PATHS:
+        try:
+            if real_resolved == danger or resolved == danger:
+                return False, real_resolved, "Acesso a diretório de sistema restrito."
+        except Exception:
+            pass
+
+    # Bloqueia apontar para dentro de subpastas restritas do main_vault (fora das 4 pastas permitidas)
+    vault_root_candidates: List[Path] = []
+    for env_key in ("NEXUS_VAULT_ROOT", "NEXUS_VAULT_HOST_DIR"):
+        val = os.environ.get(env_key)
+        if val:
+            try:
+                p = Path(val).resolve()
+                if p.exists():
+                    vault_root_candidates.append(p)
+            except Exception:
+                pass
+    if Path("/main_vault").exists():
+        try:
+            vault_root_candidates.append(Path("/main_vault").resolve())
+        except Exception:
+            pass
+
+    allowed_vault_Subdirs = {"01_projetos", "02_recursos_e_infra", "04_arquitetura_adrs", "05_areas"}
+    for vroot in vault_root_candidates:
+        try:
+            if real_resolved == vroot or real_resolved.is_relative_to(vroot):
+                rel_parts = real_resolved.relative_to(vroot).parts
+                if rel_parts and rel_parts[0].lower() not in allowed_vault_Subdirs:
+                    return False, real_resolved, "Subdiretório do main_vault fora da allowlist."
+        except Exception:
+            pass
+
+    if allowed_roots:
+        in_allowed = False
+        for root in allowed_roots:
+            try:
+                r_res = root.resolve()
+                if real_resolved == r_res or real_resolved.is_relative_to(r_res):
+                    in_allowed = True
+                    break
+            except Exception:
+                pass
+        if not in_allowed:
+            return False, real_resolved, "Caminho fora das raízes permitidas."
+
+    return True, real_resolved, None
+
+
 def browse_directory(subpath: str = "") -> Dict[str, Any]:
     """
     Navega de forma segura pelas pastas disponíveis em /projects (no Docker)
@@ -121,11 +299,9 @@ def browse_directory(subpath: str = "") -> Dict[str, Any]:
         base_dir = Path(__file__).resolve().parent.parent.parent.resolve()
         display_root = str(base_dir)
 
-    # Limpa o subpath requisitado
     clean_sub = sanitize_input_path(subpath).replace("\\", "/").lstrip("/")
     target_dir = (base_dir / clean_sub).resolve()
 
-    # Prevenção rigorosa de path traversal
     try:
         if not target_dir.is_relative_to(base_dir):
             target_dir = base_dir
@@ -140,9 +316,10 @@ def browse_directory(subpath: str = "") -> Dict[str, Any]:
         clean_sub = ""
 
     ignored_names = {
-        ".git", ".github", ".obsidian", ".vscode", "data", "backups", "node_modules",
-        "__pycache__", "bin", "boot", "dev", "etc", "home", "lib", "lib64", "media",
-        "mnt", "opt", "proc", "root", "run", "sbin", "srv", "sys", "tmp", "usr", "var"
+        ".git", ".github", ".obsidian", ".vscode", ".agents", "chaves_ssh",
+        "data", "backups", "node_modules", "__pycache__", "bin", "boot", "dev",
+        "etc", "home", "lib", "lib64", "media", "mnt", "opt", "proc", "root",
+        "run", "sbin", "srv", "sys", "tmp", "usr", "var",
     }
 
     folders = []
@@ -168,7 +345,6 @@ def browse_directory(subpath: str = "") -> Dict[str, Any]:
     except Exception:
         pass
 
-    # Calcula caminho pai para permitir "Subir Nível"
     parent_rel = None
     if target_dir != base_dir:
         parent_rel = target_dir.parent.relative_to(base_dir).as_posix()
@@ -199,20 +375,19 @@ def discover_local_projects() -> List[Dict[str, str]]:
     candidates: List[Dict[str, str]] = []
     search_dirs: List[Path] = []
 
-    # Container Docker com volume montado
     projects_dir = Path("/projects")
     if projects_dir.exists() and projects_dir.is_dir():
         search_dirs.append(projects_dir)
     else:
-        # Diretório pai do repositório se estiver rodando no host nativo (fora de Docker)
         repo_parent = Path(__file__).resolve().parent.parent.parent
         if repo_parent.exists() and repo_parent.is_dir() and repo_parent != Path("/"):
             search_dirs.append(repo_parent)
 
     ignored_names = {
-        ".git", ".github", ".obsidian", ".vscode", "data", "backups", "node_modules",
-        "__pycache__", "bin", "boot", "dev", "etc", "home", "lib", "lib64", "media",
-        "mnt", "opt", "proc", "root", "run", "sbin", "srv", "sys", "tmp", "usr", "var"
+        ".git", ".github", ".obsidian", ".vscode", ".agents", "chaves_ssh",
+        "data", "backups", "node_modules", "__pycache__", "bin", "boot", "dev",
+        "etc", "home", "lib", "lib64", "media", "mnt", "opt", "proc", "root",
+        "run", "sbin", "srv", "sys", "tmp", "usr", "var",
     }
 
     seen_names = set()
@@ -233,36 +408,6 @@ def discover_local_projects() -> List[Dict[str, str]]:
     return candidates
 
 
-def is_valid_project_path(raw_path: str) -> Tuple[bool, Optional[Path], Optional[str]]:
-    """
-    Valida e normaliza o caminho de um projeto local, prevenindo path traversal
-    e protegendo diretórios críticos do sistema operacional.
-    """
-    if not raw_path or not raw_path.strip():
-        return False, None, "Caminho do projeto não pode ser vazio."
-
-    try:
-        resolved = resolve_cross_platform_path(raw_path)
-    except Exception as e:
-        return False, None, f"Caminho inválido: {str(e)}"
-
-    if not resolved.exists():
-        return False, resolved, "Diretório não encontrado no sistema de arquivos local."
-
-    if not resolved.is_dir():
-        return False, resolved, "O caminho informado não é um diretório."
-
-    # Verifica se é uma pasta de sistema perigosa
-    for danger in DANGEROUS_SYSTEM_PATHS:
-        try:
-            if resolved == danger or resolved.resolve() == danger:
-                return False, resolved, "Acesso a diretório de sistema restrito."
-        except Exception:
-            pass
-
-    return True, resolved, None
-
-
 def get_git_telemetry(project_path: Path) -> Dict[str, Any]:
     """Coleta telemetria do repositório Git local via chamadas rápidas a 'git'."""
     git_dir = project_path / ".git"
@@ -273,6 +418,7 @@ def get_git_telemetry(project_path: Path) -> Dict[str, Any]:
             "is_dirty": False,
             "uncommitted_count": 0,
             "last_commit": "",
+            "last_commit_iso": "",
         }
 
     info: Dict[str, Any] = {
@@ -281,6 +427,7 @@ def get_git_telemetry(project_path: Path) -> Dict[str, Any]:
         "is_dirty": False,
         "uncommitted_count": 0,
         "last_commit": "",
+        "last_commit_iso": "",
     }
 
     try:
@@ -305,13 +452,17 @@ def get_git_telemetry(project_path: Path) -> Dict[str, Any]:
             info["is_dirty"] = len(lines) > 0
 
         res_c = subprocess.run(
-            ["git", "-C", str(project_path), "log", "-1", "--format=%h - %s (%cr)"],
+            ["git", "-C", str(project_path), "log", "-1", "--format=%h - %s (%cr)%n%cI"],
             capture_output=True,
             text=True,
             timeout=1.5,
         )
         if res_c.returncode == 0 and res_c.stdout.strip():
-            info["last_commit"] = res_c.stdout.strip()
+            out_lines = [l.strip() for l in res_c.stdout.splitlines() if l.strip()]
+            if out_lines:
+                info["last_commit"] = out_lines[0]
+            if len(out_lines) >= 2:
+                info["last_commit_iso"] = out_lines[1]
 
     except Exception:
         pass
@@ -320,7 +471,7 @@ def get_git_telemetry(project_path: Path) -> Dict[str, Any]:
 
 
 def get_env_indicators(project_path: Path) -> Dict[str, bool]:
-    """Identifica manifestos e ecossistemas presentes no projeto."""
+    """Identifica manifestos presentes no projeto."""
     return {
         "has_pyproject": (project_path / "pyproject.toml").exists(),
         "has_package_json": (project_path / "package.json").exists(),
@@ -350,7 +501,7 @@ def extract_mermaid_blocks(content: str) -> List[Dict[str, str]]:
 
         results.append({
             "type": diagram_type,
-            "code": clean_code
+            "code": clean_code,
         })
     return results
 
@@ -376,7 +527,6 @@ def scan_project_docs(project_path: Path) -> Dict[str, Any]:
         "README.md",
     ]
 
-    # Também descobre dinamicamente arquivos .md adicionais na pasta docs/
     docs_dir = project_path / "docs"
     if docs_dir.exists() and docs_dir.is_dir():
         for f in sorted(docs_dir.glob("*.md")):
@@ -392,7 +542,6 @@ def scan_project_docs(project_path: Path) -> Dict[str, Any]:
         candidate_file = project_path / rel
         if candidate_file.exists() and candidate_file.is_file():
             try:
-                # Limite de leitura para segurança: até 2MB por arquivo
                 content = candidate_file.read_text(encoding="utf-8", errors="replace")
                 files_found.append({
                     "relative_path": rel,
@@ -408,18 +557,19 @@ def scan_project_docs(project_path: Path) -> Dict[str, Any]:
             except Exception:
                 pass
 
-    # Separa blocos de workflow e banco de dados
     workflows = [b for b in all_mermaid_blocks if b["type"] in ("flowchart", "sequenceDiagram", "stateDiagram")]
     database = [b for b in all_mermaid_blocks if b["type"] == "erDiagram"]
     others = [b for b in all_mermaid_blocks if b not in workflows and b not in database]
 
-    # Identifica texto principal para Visão Geral / Techspec
     primary_text = ""
     for pref in [
-        "ARCHITECTURE.md", "docs/ARCHITECTURE.md",
-        "TECHSPEC.md", "docs/TECHSPEC.md",
-        "TECSPEC.md", "docs/TECSPEC.md",
-        "README.md"
+        "ARCHITECTURE.md",
+        "docs/ARCHITECTURE.md",
+        "TECHSPEC.md",
+        "docs/TECHSPEC.md",
+        "TECSPEC.md",
+        "docs/TECSPEC.md",
+        "README.md",
     ]:
         if pref in raw_docs:
             primary_text = raw_docs[pref]

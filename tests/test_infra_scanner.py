@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
 test_infra_scanner.py — Suíte de testes automatizados para o scanner de infraestrutura e subsistemas.
-Valida o parser de frontmatter YAML, extração de portas via regex, detector de colisões de porta
-e o cache TTL in-memory.
+Valida o parser de frontmatter YAML (delegado a vault_parser), extração de portas,
+detector de colisões de porta e o cache TTL in-memory.
 """
 
-import time
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-import sys
 
 TEST_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TEST_DIR.parent
@@ -66,9 +65,11 @@ Conteúdo sem o delimitador final.
             "Sistema de Obras (:3080 / :8080 / :5435)",
             "Tailscale VPN",
             "Cockpit (:9090)",
+            "3050 (Frontend PWA)",
+            8050,
         ]
         ports = infra_scanner.extract_ports_from_services(services)
-        self.assertEqual(ports, [2283, 3080, 5435, 8080, 9090])
+        self.assertEqual(ports, [2283, 3050, 3080, 5435, 8050, 8080, 9090])
 
     def test_extract_compose_ports(self):
         sample_compose = """
@@ -86,10 +87,11 @@ services:
     ports:
       - 6379:6379/tcp
 """
-        ports = infra_scanner.extract_compose_ports_from_content(sample_compose, source_id="test-proj")
+        ports = infra_scanner.extract_compose_ports_from_content(
+            sample_compose, source_id="test-proj"
+        )
         self.assertEqual(len(ports), 5)
-        
-        # Mapeamento host_port -> container_port
+
         port_map = {p["host_port"]: p["container_port"] for p in ports}
         self.assertEqual(port_map[8080], 80)
         self.assertEqual(port_map[5432], 5432)
@@ -110,8 +112,8 @@ services:
                 "host_port": 8080,
                 "container_port": 80,
                 "source_type": "project_compose",
-                "source_id": "axion-cockpit",
-                "source_label": "Axion Cockpit (web)",
+                "source_id": "nexus-cockpit",
+                "source_label": "Nexus Cockpit (web)",
             },
             {
                 "host_port": 3000,
@@ -119,7 +121,7 @@ services:
                 "source_type": "project_compose",
                 "source_id": "frontend-app",
                 "source_label": "Frontend App (web)",
-            }
+            },
         ]
         result = infra_scanner.detect_port_collisions(vault_resources, project_ports)
         self.assertEqual(result["collision_count"], 1)
@@ -129,33 +131,37 @@ services:
         self.assertEqual(collision["collision_count"], 2)
         self.assertIn("Homelab Notebook", str(collision["conflicting_sources"]))
 
-    def test_cache_ttl_and_force_refresh(self):
+    def test_cache_ttl_and_force_refresh_and_spec_docs_ignored(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
             md_file = tmppath / "test_host.md"
             md_file.write_text(
                 "---\nrecurso: Host 1\ntipo: VPS\nstatus: Ativo\nservicos_ativos:\n  - App (:8000)\n---\n",
-                encoding="utf-8"
+                encoding="utf-8",
             )
-            
-            # Primeira leitura
+            (tmppath / "Oracle.md").write_text(
+                "---\ntitulo: Spec\ntipo: Especificação Técnica\nentidade: Todas\n---\n",
+                encoding="utf-8",
+            )
+
             infra_scanner.invalidate_cache()
             catalog1 = infra_scanner.scan_infrastructure_directory(tmppath)
             self.assertEqual(len(catalog1["resources"]), 1)
             self.assertEqual(catalog1["resources"][0]["recurso"], "Host 1")
-            
-            # Altera o arquivo sem invalidar o cache
+
             md_file.write_text(
                 "---\nrecurso: Host Modificado\ntipo: VPS\nstatus: Ativo\nservicos_ativos:\n  - App (:8000)\n---\n",
-                encoding="utf-8"
+                encoding="utf-8",
             )
-            
-            # Segunda leitura dentro da janela TTL (30s) sem force_refresh
-            catalog2 = infra_scanner.scan_infrastructure_directory(tmppath, force_refresh=False)
+
+            catalog2 = infra_scanner.scan_infrastructure_directory(
+                tmppath, force_refresh=False
+            )
             self.assertEqual(catalog2["resources"][0]["recurso"], "Host 1")
-            
-            # Terceira leitura com force_refresh
-            catalog3 = infra_scanner.scan_infrastructure_directory(tmppath, force_refresh=True)
+
+            catalog3 = infra_scanner.scan_infrastructure_directory(
+                tmppath, force_refresh=True
+            )
             self.assertEqual(catalog3["resources"][0]["recurso"], "Host Modificado")
 
 

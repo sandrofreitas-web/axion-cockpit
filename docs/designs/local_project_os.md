@@ -1,9 +1,9 @@
-# Documento de Design Técnico: Axion Cockpit (Local Project OS)
+# Documento de Design Técnico: Nexus Cockpit (Local Project OS)
 
-* **Status:** Aprovado e Remediado (Pós-Revisão EGM) — Oficializado como Axion Cockpit
+* **Status:** Aprovado e Remediado (Pós-Revisão EGM) — Evoluído para Nexus Cockpit (veja [vault_observability_and_entity_cockpit.md](vault_observability_and_entity_cockpit.md))
 * **Autor:** Sandro Freitas
 * **Data:** 2026-10-30
-* **Relatório de Auditoria:** [docs/reviews/consolidated_review_report.md](file:///C:/Docker/axion-cockpit/docs/reviews/consolidated_review_report.md)
+* **Relatório de Auditoria:** [docs/reviews/README.md](../reviews/README.md)
 
 ---
 

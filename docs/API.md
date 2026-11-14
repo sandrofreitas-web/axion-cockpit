@@ -1,259 +1,208 @@
-# Referência da REST API — Axion Cockpit
+# Referência da API REST — Nexus Cockpit
 
-A API REST do **Axion Cockpit** é fornecida nativamente pelo módulo [ui/app.py](file:///C:/Docker/axion-cockpit/ui/app.py). Todas as respostas são retornadas no formato `application/json` codificado em UTF-8.
-
----
-
-## Sumário de Endpoints
-
-| Método | Endpoint | Descrição |
-|---|---|---|
-| `GET` | `/api/projects` | Lista todos os projetos cadastrados na frota. |
-| `POST` | `/api/projects` | Registra um novo projeto no catálogo via caminho em disco. |
-| `POST` | `/api/projects/ingest` | Ingestão de projetos via seletor de pastas com arquivos documentais. |
-| `GET` | `/api/projects/discover` | Descobre automaticamente diretórios de projetos no ambiente/volume. |
-| `GET` | `/api/system/browse` | Navegador de pastas do sistema de arquivos para exploração interativa. |
-| `DELETE` | `/api/projects/{id}` | Remove um projeto do catálogo (não apaga os arquivos do disco). |
-| `GET` | `/api/projects/{id}/docs` | Executa scan on-demand dos documentos Markdown e telemetria Git. |
-| `GET` | `/api/projects/{id}/git-telemetry` | Coleta dados e status em tempo real do Git. |
-| `POST` | `/api/projects/{id}/version` | Atualiza a versão canônica do projeto. |
-| `GET` | `/api/projects/{id}/notes` | Lista todas as anotações e melhorias do projeto. |
-| `POST` | `/api/projects/{id}/notes` | Cria uma anotação em arquivo Markdown. |
-| `PUT` | `/api/projects/{id}/notes/{note_id}` | Atualiza uma anotação de melhoria existente. |
-| `DELETE` | `/api/projects/{id}/notes/{note_id}` | Exclui permanentemente uma anotação de melhoria. |
-| `GET` | `/api/infra` | Retorna catálogo de hosts, matriz de portas, colisões e métricas sob demanda. |
-| `POST` | `/api/infra/config` | Configura e valida o caminho absoluto para o cofre de infraestrutura. |
+O servidor HTTP do **Nexus Cockpit** escuta na porta `4100` (vinculada a `127.0.0.1:4100` no host) e responde com payloads JSON (`application/json; charset=utf-8`).
 
 ---
 
-## 1. Gestão da Frota de Projetos
+## 🔒 Convenções de Segurança
 
-### 1.1. `GET /api/projects`
-Retorna a lista completa de projetos registrados no arquivo `data/projects.json`.
+- **Sem CORS Wildcard**: O servidor não emite `Access-Control-Allow-Origin: *`.
+- **Proteção Anti-CSRF em Rotas Mutáveis (`POST`, `PUT`, `DELETE`)**:
+  - Requisições com cabeçalho `Sec-Fetch-Site: cross-site` são bloqueadas com `403 Forbidden`.
+  - Requisições com cabeçalho `Origin` que não corresponda a `localhost`, `127.0.0.1` ou `[::1]` são bloqueadas com `403 Forbidden`.
+  - Requisições com corpo exigem `Content-Type: application/json` (retornando `415 Unsupported Media Type` caso contrário).
 
-**Exemplo de Resposta (200 OK):**
+---
+
+## 1. Saúde e Status do Sistema
+
+### `GET /api/status`
+Endpoint leve de healthcheck (sem invocação de subprocessos Git) que retorna o estado do servidor e o resumo do snapshot atual do `VaultObserver`.
+
+**Resposta `200 OK`:**
 ```json
-[
-  {
-    "id": "meu-projeto",
-    "name": "Meu Projeto de Exemplo",
-    "path": "C:\\Docker\\meu-projeto",
-    "resolved_path": "/projects/meu-projeto",
-    "current_version": "v1.0.0",
-    "created_at": "2026-10-31T07:00:00.000000+00:00",
-    "tags": ["python", "backend"],
-    "accessible": true,
-    "git": {
-      "is_repo": true,
-      "branch": "main",
-      "is_dirty": false,
-      "uncommitted_count": 0
+{
+  "status": "online",
+  "app": "Nexus Cockpit",
+  "timestamp": "2026-11-14T09:50:00+00:00",
+  "vault": {
+    "vault_status": "available",
+    "vault_error": null,
+    "last_indexed_at": "2026-11-14T09:49:55Z",
+    "files_total": 49,
+    "errors_count": 0,
+    "divergences_count": 3
+  }
+}
+```
+
+---
+
+## 2. Observabilidade do Main Vault & Visão por Entidade
+
+### `GET /api/vault/entities`
+Retorna o estado do índice do `main_vault` e a lista de entidades (`Todas`, `Pessoal`, `Axion Skill`, `SIAE BR`, `Igreja ICENV`) com contadores por domínio, erros de contrato e divergências.
+
+**Resposta `200 OK`:**
+```json
+{
+  "vault_status": "available",
+  "last_indexed_at": "2026-11-14T09:49:55Z",
+  "entities": [
+    {
+      "name": "Todas",
+      "projects": 11,
+      "infra": 8,
+      "adrs": 8,
+      "areas": 22,
+      "contract_errors": 0,
+      "divergences": 3
     },
-    "env": {
-      "has_dockerfile": true,
-      "has_compose": true
+    {
+      "name": "Pessoal",
+      "projects": 6,
+      "infra": 5,
+      "adrs": 6,
+      "areas": 12,
+      "contract_errors": 0,
+      "divergences": 1
     }
-  }
-]
-```
-
-### 1.2. `POST /api/projects`
-Cadastra um novo diretório de projeto. O caminho pode ser no formato Windows (ex: `C:\Docker\meu-projeto` com ou sem aspas), caminho do container (`/projects/meu-projeto`) ou relativo.
-
-**Corpo da Requisição (JSON):**
-```json
-{
-  "name": "E-Commerce Microservice",
-  "path": "C:\\Docker\\ecommerce-ms",
-  "current_version": "v0.9.0",
-  "tags": ["nodejs", "prisma", "docker"]
+  ]
 }
 ```
 
-### 1.3. `POST /api/projects/ingest`
-Ingestão de projetos independente do ponto de montagem Docker (suporta pastas em qualquer drive do Windows, como Google Drive `G:\`, rede ou pastas locais).
+### `GET /api/vault/overview?entity=<nome>`
+Retorna a visão consolidada da entidade selecionada (padrão: `Todas`), incluindo KPIs (`summary`), nós indexados (`vault_nodes`), vínculos N:1 com matriz binária de divergências (`project_repo_links`) e eventos de auditoria de schema (`scan_errors`).
 
-**Corpo da Requisição (JSON):**
+**Parâmetros de Query:**
+- `entity` (opcional): `Todas`, `Pessoal`, `Axion Skill`, `SIAE BR` ou `Igreja ICENV`. Retorna `400 Bad Request` se for informada uma entidade desconhecida.
+
+**Resposta `200 OK`:**
 ```json
 {
-  "name": "Personal Finance Cockpit",
-  "folder_name": "Finaceiro_pessoal",
-  "path": "G:\\Meu Drive\\01 Projetos\\Finaceiro_pessoal",
-  "version": "v2.0.1",
-  "tags": ["finance", "fastapi", "react"],
-  "docs": {
-    "README.md": "# Personal Finance Cockpit...",
-    "docs/TECSPEC.md": "# Especificação Técnica..."
+  "vault_status": "available",
+  "vault_error": null,
+  "schema_version": "1.0.0",
+  "last_indexed_at": "2026-11-14T09:49:55Z",
+  "entity": "Todas",
+  "summary": {
+    "total_nodes": 49,
+    "contract_errors": 0,
+    "warnings": 3,
+    "divergences": 3
   },
-  "manifests": {
-    "has_dockerfile": true,
-    "has_compose": true
-  }
-}
-```
-
-### 1.4. `GET /api/projects/discover`
-Varre o ambiente e retorna atalhos de projetos detectados no volume montado (`/projects`) ou diretórios vizinhos.
-
-### 1.5. `GET /api/system/browse?path={subpath}`
-Permite navegação interativa pelas pastas disponíveis com proteção rigorosa contra *path traversal*.
-
-### 1.6. `DELETE /api/projects/{id}`
-Remove o projeto do registro central. Os arquivos físicos no disco do host e as notas associadas não são deletados.
-
-**Respostas:**
-* `200 OK`: `{"status": "deleted", "id": "meu-projeto"}`
-* `404 Not Found`: Projeto não encontrado.
-
----
-
-## 2. Inspeção On-Demand de Documentação e Git
-
-### 2.1. `GET /api/projects/{id}/docs`
-Executa o scanner passivo no diretório configurado ou nos documentos ingeridos, coletando o Markdown principal, blocos Mermaid de fluxogramas e banco de dados, telemetria Git e indicadores de ambiente.
-
-**Exemplo de Resposta (200 OK):**
-```json
-{
-  "files_found": [
+  "vault_nodes": [
     {
-      "relative_path": "docs/ARCHITECTURE.md",
-      "size_bytes": 4820,
-      "modified_at": 1793440000.0
+      "rel_path": "05_Areas/Pessoal/Financas.md",
+      "domain": "areas",
+      "entity": "Pessoal",
+      "title": "Financas",
+      "area": "Finanças",
+      "doc_type": "area_operacional",
+      "status": "Ativo",
+      "frontmatter_status": "ok",
+      "links_status": "valid",
+      "validation_errors": [],
+      "size_bytes": 1420,
+      "doc_date": "2026-11-01",
+      "indexed_at": "2026-11-14T09:49:55Z"
     }
   ],
-  "primary_doc": "# Arquitetura...",
-  "workflows": [
+  "project_repo_links": [
     {
-      "type": "flowchart",
-      "code": "flowchart TD\n  A --> B",
-      "source_file": "docs/ARCHITECTURE.md"
+      "project_title": "Nexus Cockpit",
+      "entity": "Pessoal",
+      "vault_rel_path": "01_Projetos/Axion_Cockpit.md",
+      "vault_status": "Ativo",
+      "cockpit_project_id": "nexus-cockpit",
+      "link_state": "linked_local",
+      "raw_repo_ref": "C:\\Docker\\nexus-cockpit",
+      "sibling_modules_count": 1,
+      "git": {
+        "is_repo": true,
+        "branch": "main",
+        "is_dirty": false,
+        "uncommitted_count": 0,
+        "last_commit_date": "2026-11-14T06:50:00-03:00"
+      },
+      "declared_ports": [4100],
+      "compose_ports": [4100],
+      "divergence_flags": []
     }
   ],
-  "database": [
-    {
-      "type": "erDiagram",
-      "code": "erDiagram\n  USER ||--o{ ORDER : places",
-      "source_file": "docs/ARCHITECTURE.md"
-    }
-  ],
-  "git": {
-    "is_repo": true,
-    "branch": "main",
-    "is_dirty": false,
-    "uncommitted_count": 0,
-    "last_commit": "a1b2c3d - Adiciona testes unitários (2 hours ago)"
-  },
-  "env_indicators": {
-    "has_pyproject": false,
-    "has_package_json": true,
-    "has_dockerfile": true,
-    "has_compose": true,
-    "has_prisma": false
-  }
+  "scan_errors": []
 }
 ```
+> **Garantia de Privacidade (`05_Areas`)**: Os elementos de `vault_nodes` com `domain == "areas"` contêm exclusivamente as 13 chaves de `AREAS_SAFE_FIELDS`. O conteúdo textual (`body`/`content`) e `caminho_drive` nunca são incluídos.
 
----
+### `POST /api/vault/reindex`
+Aciona a reconstrução imediata do snapshot em memória do `main_vault` e limpa o cache de infraestrutura.
 
-## 3. Gestão de Versão Canônica
+**Corpo da Requisição:** `{"force": true}` (ou `{}`)
 
-### 3.1. `POST /api/projects/{id}/version`
-Atualiza a versão canônica do projeto registrada no catálogo central.
-
-**Corpo da Requisição (JSON):**
+**Resposta `200 OK`:**
 ```json
 {
-  "version": "v1.1.0"
+  "status": "ok",
+  "vault_status": "available",
+  "vault_error": null,
+  "last_indexed_at": "2026-11-14T09:51:00Z",
+  "files_total": 49,
+  "errors_count": 0,
+  "warnings_count": 3,
+  "divergences_count": 3
 }
 ```
 
-**Respostas:**
-* `200 OK`: `{"status": "updated", "id": "meu-projeto", "current_version": "v1.1.0"}`
-* `400 Bad Request`: Versão vazia ou inválida.
-* `404 Not Found`: Projeto não encontrado.
+---
+
+## 3. Catálogo de Infraestrutura Global
+
+### `GET /api/infra`
+Retorna os recursos de infraestrutura declarados em `02_Recursos_e_Infra`, métricas agregadas (`by_type`, `by_os`, `by_entity`) e a matriz de portas com detecção de colisões (`ports`).
+- Suporta `?refresh=true` para forçar a atualização imediata do cache TTL (30s).
+
+### `POST /api/infra/config`
+Atualiza o caminho configurado para a pasta de recursos em `data/config.json`. Rejeita diretórios proibidos (`chaves_ssh`, `.obsidian`, `.git`, caminhos de sistema).
+- **Payload**: `{"vault_path": "G:\\Meu Drive\\main_vault\\02_Recursos_e_Infra"}`
 
 ---
 
-## 4. Ledger de Anotações e Melhorias (Markdown)
+## 4. Frota de Projetos Locais & Ledger de Melhorias
 
-### 4.1. `GET /api/projects/{id}/notes`
-Retorna todas as notas salvas no subdiretório `data/notes/{project_id}/`.
+### `GET /api/projects`
+Lista todos os projetos registrados em `data/projects.json`, enriquecidos com telemetria Git e status de acessibilidade física no disco.
 
----
+### `GET /api/projects/discover`
+Descobre automaticamente diretórios de projetos disponíveis em `/projects` (`C:\Docker`) ainda não registrados.
 
-### 4.2. `POST /api/projects/{id}/notes`
-Cria uma nova anotação. As notas são armazenadas no disco com frontmatter YAML leve e corpo Markdown legível.
+### `GET /api/system/browse?path=<subpath>`
+Navega pelas subpastas do workspace para seleção visual de diretórios.
 
----
+### `GET /api/projects/<id>/docs`
+Extrai sob demanda a documentação Markdown consolidada, indicadores de ambiente, diagramas Mermaid (`workflows` e `database`) e telemetria Git do projeto `<id>`.
 
-### 4.3. `DELETE /api/projects/{id}/notes/{note_id}`
-Remove permanentemente o arquivo `.md` correspondente à nota em `data/notes/{project_id}/`.
+### `POST /api/projects`
+Registra um projeto local existente pelo caminho ou pasta descoberta.
+- **Payload**: `{"name": "Meu Projeto", "path": "C:\\Docker\\meu-projeto", "current_version": "v1.0.0", "tags": ["python", "docker"]}`
 
+### `POST /api/projects/ingest`
+Ingere os arquivos documentais (`.md`, `Dockerfile`, `docker-compose.yml`, etc.) selecionados via navegador para `data/ingested/<id>/` e registra o projeto no catálogo.
 
----
+### `DELETE /api/projects/<id>`
+Remove o vínculo do projeto de `data/projects.json` (preservando intocados os arquivos originais no disco).
 
-## 5. Catálogo de Infraestrutura e Subsistemas
+### `POST /api/projects/<id>/version`
+Homologa uma nova versão canônica para o projeto (`{"version": "v1.1.0"}`).
 
-### 5.1. `GET /api/infra`
-Retorna o catálogo consolidado de hosts da infraestrutura global (lidos das fichas declarativas no vault), matriz de portas de rede mapeadas (hosts e projetos locais), detecção de colisões e métricas agregadas.
+### `GET /api/projects/<id>/notes`
+Lista todas as notas do Ledger de Melhorias do projeto (`data/notes/<id>/*.md`).
 
-**Parâmetros de Consulta:**
-* `force_refresh=true` (opcional): Invalida o cache em memória de 30 segundos e força a releitura direta do disco.
+### `POST /api/projects/<id>/notes`
+Cria uma nova nota de melhoria no Ledger do projeto.
 
-**Exemplo de Resposta (200 OK):**
-```json
-{
-  "vault_status": "ok",
-  "vault_path": "G:\\Meu Drive\\main_vault\\02_Recursos_e_Infra",
-  "resources": [
-    {
-      "id": "homelab-notebook",
-      "recurso": "Home Lab Notebook",
-      "tipo": "Bare-Metal Server (24/7)",
-      "entidade": "Pessoal",
-      "host": "192.168.15.176",
-      "os": "Ubuntu Server",
-      "status": "Ativo / Produção",
-      "servicos_ativos": ["Cockpit (:9090)", "Portainer (:9000 / :9443)"],
-      "ports": [9090, 9000, 9443],
-      "tags": ["recurso", "homelab"]
-    }
-  ],
-  "ports": {
-    "bindings": [
-      {
-        "host_port": 8080,
-        "is_collision": true,
-        "collision_count": 2,
-        "conflicting_sources": [
-          "Homelab Notebook",
-          "Axion Cockpit (web)"
-        ]
-      }
-    ],
-    "collision_count": 1,
-    "collisions": []
-  },
-  "metrics": {
-    "total_hosts": 6,
-    "by_type": { "Bare-Metal Server (24/7)": 2, "Cloud VPS": 3 },
-    "by_os": { "Ubuntu Server": 5 },
-    "by_entity": { "Pessoal": 2, "ICENV": 2, "SIAE BR": 2 }
-  }
-}
-```
+### `PUT /api/projects/<id>/notes/<note_id>`
+Atualiza o título, estágio (`idea`, `planned`, `in_review`, `incorporated`), versão-alvo, arquivos impactados ou conteúdo de uma nota.
 
-### 5.2. `POST /api/infra/config`
-Persiste o caminho do cofre em `data/config.json` e invalida o cache em memória.
-
-**Corpo da Requisição (JSON):**
-```json
-{
-  "vault_path": "G:\\Meu Drive\\main_vault\\02_Recursos_e_Infra"
-}
-```
-
-**Respostas:**
-* `200 OK`: `{"status": "ok", "vault_path": "..."}`
-* `400 Bad Request`: Caminho não informado, inválido ou inexistente no disco.
+### `DELETE /api/projects/<id>/notes/<note_id>`
+Exclui uma nota do Ledger de Melhorias do projeto.

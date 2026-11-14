@@ -1,5 +1,5 @@
 # ==============================================================================
-# Axion Cockpit — Dockerfile
+# Nexus Cockpit — Dockerfile
 # Imagem enxuta baseada em Python 3.12 Slim (Zero dependências externas de pip)
 # ==============================================================================
 
@@ -7,7 +7,7 @@ FROM python:3.12-slim AS runner
 
 # Metadados
 LABEL maintainer="Sandro Freitas"
-LABEL description="Axion Cockpit — Console Operacional e Arquitetural de Projetos"
+LABEL description="Nexus Cockpit — Console Operacional, Arquitetural e Observabilidade do Main Vault"
 
 # Configurações de ambiente
 ENV PYTHONUNBUFFERED=1 \
@@ -40,12 +40,12 @@ COPY data/ ./data/
 # Volume persistente para catálogo de projetos e anotações
 VOLUME ["/app/data"]
 
-# Expõe a porta padrão do Axion Cockpit
+# Expõe a porta padrão do Nexus Cockpit
 EXPOSE 4100
 
-# Healthcheck nativo consultando o endpoint da REST API
+# Healthcheck nativo consultando GET /api/status (sem I/O pesado de Git)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4100/api/projects').read()" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4100/api/status').read()" || exit 1
 
 # Comando de inicialização
 CMD ["python", "ui/app.py"]

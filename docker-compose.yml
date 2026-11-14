@@ -1,28 +1,33 @@
-name: axion-cockpit
+name: nexus-cockpit
 
 services:
-  axion-cockpit:
+  nexus-cockpit:
     build:
       context: .
       dockerfile: Dockerfile
-    image: axion-cockpit:latest
-    container_name: axion-cockpit
+    image: nexus-cockpit:latest
+    container_name: nexus-cockpit
     restart: unless-stopped
     ports:
-      - "${PORT:-4100}:4100"
+      - "127.0.0.1:${PORT:-4100}:4100"
     environment:
       - HOST=0.0.0.0
       - PORT=4100
+      - NEXUS_VAULT_ROOT=/main_vault
+      - DRIVE_PROJECTS_DIR=/drive_projects
     volumes:
-      # Persistência de dados: catálogo de projetos e notas markdown
+      # Código-fonte da interface e API (permite hot-reload de assets estáticos)
+      - ./ui:/app/ui:ro
+      # Persistência de dados locais do cockpit: catálogo de projetos e notas markdown
       - ./data:/app/data
-      # Volume para inspeção de projetos do host no Linux/WSL/Docker
-      # Mapeia o diretório pai ou diretório de projetos para que o scanner leia documentos locais
+      # Volume para inspeção somente leitura de projetos locais em C:\Docker
       - ${PROJECTS_HOST_DIR:-..}:/projects:ro
-      # Volume opcional para leitura passiva de fichas do vault de infraestrutura
-      - "${AXION_VAULT_HOST_DIR:-G:/Meu Drive/main_vault/02_Recursos_e_Infra}:/vault:ro"
+      # Volume somente leitura do main_vault (filtrado por allowlist de 4 domínios no scanner)
+      - "${NEXUS_VAULT_HOST_DIR:-G:/Meu Drive/main_vault}:/main_vault:ro"
+      # Volume somente leitura para repositórios Git residentes em G:\Meu Drive\01 Projetos
+      - "${DRIVE_PROJECTS_HOST_DIR:-G:/Meu Drive/01 Projetos}:/drive_projects:ro"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4100/api/projects').read()\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4100/api/status').read()\""]
       interval: 30s
       timeout: 5s
       retries: 3

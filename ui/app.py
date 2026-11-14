@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Axion Cockpit — Local Management Dashboard Server.
-Backend REST API leve para visualização arquitetural e gestão operacional da frota de projetos.
-Executa 100% na biblioteca padrão do Python (sem dependências externas de pip).
+Nexus Cockpit — Local Management & Vault Observability Dashboard Server.
+Backend REST API leve para visualização arquitetural, observabilidade read-only do main_vault
+e gestão operacional da frota de projetos. Executa 100% na biblioteca padrão do Python.
 """
 
 import argparse
 import http.server
 import json
-import mimetypes
 import os
 import re
 import socketserver
@@ -16,9 +15,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, urlparse
 
-# Garante saída UTF-8 no Windows
 if hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -34,7 +32,6 @@ CONFIG_FILE = DATA_DIR / "config.json"
 NOTES_BASE_DIR = DATA_DIR / "notes"
 INGESTED_BASE_DIR = DATA_DIR / "ingested"
 
-# Garante existência dos diretórios de dados
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 NOTES_BASE_DIR.mkdir(parents=True, exist_ok=True)
 INGESTED_BASE_DIR.mkdir(parents=True, exist_ok=True)
@@ -42,15 +39,63 @@ INGESTED_BASE_DIR.mkdir(parents=True, exist_ok=True)
 if not PROJECTS_FILE.exists():
     PROJECTS_FILE.write_text("[]", encoding="utf-8")
 
-# Adiciona UI_ROOT ao sys.path para importar scanner e infra_scanner
 sys.path.insert(0, str(UI_ROOT))
-import scanner
 import infra_scanner
+import scanner
+import vault_observer
+import vault_parser
+
+VAULT_OBSERVER = vault_observer.VaultObserver(
+    projects_file=PROJECTS_FILE,
+    ingested_dir=INGESTED_BASE_DIR,
+)
+
+LOOPBACK_ORIGIN_RE = re.compile(
+    r"^https?://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$",
+    re.IGNORECASE,
+)
+
+
+def configure_runtime(
+    data_dir: Optional[Path] = None,
+    vault_root: Optional[Path] = None,
+    schema_path: Optional[Path] = None,
+    drive_projects_dir: Optional[Path] = None,
+    warmup: bool = False,
+) -> vault_observer.VaultObserver:
+    """
+    Reconfigura os diretórios de dados e o VaultObserver (usado no boot do servidor e em testes isolados).
+    """
+    global DATA_DIR, PROJECTS_FILE, CONFIG_FILE, NOTES_BASE_DIR, INGESTED_BASE_DIR, VAULT_OBSERVER
+
+    if data_dir is not None:
+        DATA_DIR = Path(data_dir).resolve()
+        PROJECTS_FILE = DATA_DIR / "projects.json"
+        CONFIG_FILE = DATA_DIR / "config.json"
+        NOTES_BASE_DIR = DATA_DIR / "notes"
+        INGESTED_BASE_DIR = DATA_DIR / "ingested"
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        NOTES_BASE_DIR.mkdir(parents=True, exist_ok=True)
+        INGESTED_BASE_DIR.mkdir(parents=True, exist_ok=True)
+        if not PROJECTS_FILE.exists():
+            PROJECTS_FILE.write_text("[]", encoding="utf-8")
+
+    VAULT_OBSERVER = vault_observer.VaultObserver(
+        vault_root=vault_root,
+        schema_path=schema_path,
+        projects_file=PROJECTS_FILE,
+        ingested_dir=INGESTED_BASE_DIR,
+        drive_projects_dir=drive_projects_dir,
+    )
+    if warmup:
+        VAULT_OBSERVER.reindex(force=True)
+    return VAULT_OBSERVER
 
 
 # ==============================================================================
-# Funções Utilitárias de Armazenamento e Notas
+# Funções Utilitárias de Armazenamento e Notas Locais do Cockpit
 # ==============================================================================
+
 
 def load_config() -> Dict[str, Any]:
     if not CONFIG_FILE.exists():
@@ -62,7 +107,7 @@ def load_config() -> Dict[str, Any]:
 
 
 def save_config(cfg: Dict[str, Any]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_FILE.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -76,6 +121,7 @@ def load_projects() -> List[Dict[str, Any]]:
 
 
 def save_projects(projects: List[Dict[str, Any]]) -> None:
+    PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     PROJECTS_FILE.write_text(json.dumps(projects, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -91,9 +137,7 @@ def resolve_project_path(proj: Dict[str, Any]) -> Tuple[bool, Optional[Path], Op
     project_id = proj.get("id", "")
     ingested_dir = INGESTED_BASE_DIR / project_id
 
-    # 1. Se for projeto com documentação ingerida
     if ingested_dir.exists() and ingested_dir.is_dir():
-        # Se tiver caminho físico original acessível no host (para Git), tenta usar
         path_str = proj.get("path", "")
         if path_str:
             valid_host, res_host, _ = scanner.is_valid_project_path(path_str)
@@ -101,13 +145,11 @@ def resolve_project_path(proj: Dict[str, Any]) -> Tuple[bool, Optional[Path], Op
                 return True, res_host, None
         return True, ingested_dir, None
 
-    # 2. Caminho configurado no disco
     path_str = proj.get("path", "")
     valid, res, err = scanner.is_valid_project_path(path_str)
     if valid and res:
         return valid, res, None
 
-    # 3. Fallback resolvido
     if proj.get("resolved_path"):
         valid_res, res_fallback, _ = scanner.is_valid_project_path(proj.get("resolved_path", ""))
         if valid_res and res_fallback:
@@ -117,7 +159,7 @@ def resolve_project_path(proj: Dict[str, Any]) -> Tuple[bool, Optional[Path], Op
 
 
 def parse_markdown_note(file_path: Path) -> Dict[str, Any]:
-    """Lê um arquivo de nota Markdown e extrai frontmatter YAML simples."""
+    """Lê um arquivo de nota local do cockpit delegando ao parser YAML unificado."""
     content = file_path.read_text(encoding="utf-8", errors="replace")
     meta: Dict[str, Any] = {
         "id": file_path.stem,
@@ -127,49 +169,33 @@ def parse_markdown_note(file_path: Path) -> Dict[str, Any]:
         "target_files": [],
         "version_target": "",
     }
-    body = content
-
-    if content.startswith("---"):
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
-            fm_text = parts[1]
-            body = parts[2].strip()
-            # Parser leve de chave-valor para evitar dependência de PyYAML
-            current_list_key = None
-            for line in fm_text.splitlines():
-                line_str = line.strip()
-                if not line_str or line_str.startswith("#"):
-                    continue
-                if line_str.startswith("- ") and current_list_key:
-                    val = line_str[2:].strip().strip("\"'")
-                    meta[current_list_key].append(val)
-                elif ":" in line_str:
-                    k, v = line_str.split(":", 1)
-                    k = k.strip()
-                    v = v.split("#")[0].strip().strip("\"'")
-                    if not v:
-                        current_list_key = k
-                        meta[k] = []
-                    else:
-                        current_list_key = None
-                        meta[k] = v
-
-    meta["content"] = body
+    fm_data, status, _, body = vault_parser.parse_frontmatter_strict(content)
+    if status == "ok":
+        for k, v in fm_data.items():
+            meta[k] = v
+        meta["content"] = body
+    else:
+        meta["content"] = content
     return meta
 
 
 def write_markdown_note(file_path: Path, meta: Dict[str, Any], body: str) -> None:
+    """Grava uma nota local do cockpit escapando caracteres especiais em strings com aspas duplas."""
+    esc_title = vault_parser.escape_yaml_double_quoted(meta.get("title", file_path.stem))
+    esc_version = vault_parser.escape_yaml_double_quoted(meta.get("version_target", ""))
+
     lines = ["---"]
     lines.append(f"id: {meta.get('id', file_path.stem)}")
-    lines.append(f"title: \"{meta.get('title', file_path.stem)}\"")
+    lines.append(f'title: "{esc_title}"')
     lines.append(f"status: {meta.get('status', 'idea')}")
     lines.append(f"created_at: {meta.get('created_at', datetime.now(timezone.utc).isoformat())}")
-    lines.append(f"version_target: \"{meta.get('version_target', '')}\"")
+    lines.append(f'version_target: "{esc_version}"')
     target_files = meta.get("target_files", [])
     if isinstance(target_files, list) and target_files:
         lines.append("target_files:")
         for tf in target_files:
-            lines.append(f"  - \"{tf}\"")
+            esc_tf = vault_parser.escape_yaml_double_quoted(tf)
+            lines.append(f'  - "{esc_tf}"')
     else:
         lines.append("target_files: []")
     lines.append("---")
@@ -183,12 +209,18 @@ def write_markdown_note(file_path: Path, meta: Dict[str, Any], body: str) -> Non
 # Handler de Requisições HTTP REST
 # ==============================================================================
 
+
 class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(UI_ROOT), **kwargs)
 
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
+
     def log_message(self, format, *args):
-        # Log simplificado
         sys.stderr.write(f"[{datetime.now().strftime('%H:%M:%S')}] {self.command} {self.path}\n")
 
     def send_json(self, data: Any, status: int = 200) -> None:
@@ -196,9 +228,6 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -207,10 +236,33 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Allow", "GET, POST, PUT, DELETE, OPTIONS")
         self.end_headers()
+
+    def _validate_mutation_security(self, require_json_content_type: bool = True) -> bool:
+        """
+        Protege rotas mutáveis (POST, PUT, DELETE) contra CSRF cross-site e Content-Type inválido.
+        Não exige cabeçalho Host fixo para permitir testes e portas dinâmicas em loopback.
+        """
+        sec_fetch_site = (self.headers.get("Sec-Fetch-Site") or "").strip().lower()
+        if sec_fetch_site == "cross-site":
+            self.send_error_json("Requisição cross-site bloqueada por política anti-CSRF.", 403)
+            return False
+
+        origin = (self.headers.get("Origin") or "").strip()
+        if origin and not LOOPBACK_ORIGIN_RE.match(origin):
+            self.send_error_json("Origin não autorizada para mutação local.", 403)
+            return False
+
+        if require_json_content_type:
+            ctype = (self.headers.get("Content-Type") or "").strip().lower()
+            content_len = int(self.headers.get("Content-Length") or "0")
+            if content_len > 0 or ctype:
+                if not ctype.startswith("application/json"):
+                    self.send_error_json("Content-Type deve ser application/json.", 415)
+                    return False
+
+        return True
 
     def read_json_body(self) -> Optional[Dict[str, Any]]:
         try:
@@ -222,7 +274,8 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
                 raw_data = raw_bytes.decode("utf-8")
             except UnicodeDecodeError:
                 raw_data = raw_bytes.decode("latin-1", errors="replace")
-            return json.loads(raw_data)
+            parsed = json.loads(raw_data)
+            return parsed if isinstance(parsed, dict) else None
         except Exception:
             return None
 
@@ -233,22 +286,36 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
-        # Rota de Status da API
         if path == "/api/status":
-            self.send_json({
-                "status": "online",
-                "app": "Axion Cockpit",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+            self.send_json(
+                {
+                    "status": "online",
+                    "app": "Nexus Cockpit",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "vault": VAULT_OBSERVER.get_status_summary(),
+                }
+            )
             return
 
-        # Descoberta de Projetos Locais/Montados: GET /api/projects/discover
+        if path == "/api/vault/entities":
+            self.send_json(VAULT_OBSERVER.get_entities_summary())
+            return
+
+        if path == "/api/vault/overview":
+            query_params = parse_qs(parsed.query)
+            entity_param = query_params.get("entity", ["Todas"])[0]
+            payload, err_msg = VAULT_OBSERVER.get_overview(entity_param)
+            if err_msg or payload is None:
+                self.send_error_json(err_msg or "Filtro de entidade inválido.", 400)
+                return
+            self.send_json(payload)
+            return
+
         if path == "/api/projects/discover":
             candidates = scanner.discover_local_projects()
             self.send_json(candidates)
             return
 
-        # Navegador de Pastas: GET /api/system/browse?path=...
         if path == "/api/system/browse":
             query_params = parse_qs(parsed.query)
             subpath = query_params.get("path", [""])[0]
@@ -256,33 +323,47 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(result)
             return
 
-        # Listar Projetos: GET /api/projects
         if path == "/api/projects":
             projects = load_projects()
+            snap = VAULT_OBSERVER.get_snapshot(ensure_loaded=False)
+            cached_git_map = snap.get("git_by_project_id", {})
             enriched = []
             for p in projects:
                 p_copy = dict(p)
+                pid = str(p.get("id") or "")
                 valid, resolved_path, _ = resolve_project_path(p)
                 p_copy["accessible"] = valid
                 if valid and resolved_path:
-                    p_copy["git"] = scanner.get_git_telemetry(resolved_path)
+                    if pid in cached_git_map:
+                        p_copy["git"] = cached_git_map[pid]
+                    else:
+                        p_copy["git"] = scanner.get_git_telemetry(resolved_path)
                     p_copy["env"] = scanner.get_env_indicators(resolved_path)
                 else:
-                    p_copy["git"] = {"is_repo": False, "branch": "", "is_dirty": False, "uncommitted_count": 0}
+                    p_copy["git"] = {
+                        "is_repo": False,
+                        "branch": "",
+                        "is_dirty": False,
+                        "uncommitted_count": 0,
+                        "last_commit": "",
+                        "last_commit_iso": "",
+                    }
                     p_copy["env"] = {}
                 enriched.append(p_copy)
             self.send_json(enriched)
             return
 
-        # Catálogo de Infraestrutura e Subsistemas: GET /api/infra
         if path == "/api/infra":
             query = parse_qs(parsed.query)
             force_refresh = query.get("force_refresh", ["false"])[0].lower() == "true"
-            catalog = infra_scanner.get_infrastructure_catalog(force_refresh=force_refresh)
+            catalog = infra_scanner.get_infrastructure_catalog(
+                force_refresh=force_refresh,
+                data_dir=DATA_DIR,
+                projects_file=PROJECTS_FILE,
+            )
             self.send_json(catalog)
             return
 
-        # Documentos e Diagramas: GET /api/projects/{id}/docs
         m_docs = re.match(r"^/api/projects/([^/]+)/docs$", path)
         if m_docs:
             project_id = m_docs.group(1)
@@ -298,7 +379,6 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(docs_payload)
             return
 
-        # Telemetria Git: GET /api/projects/{id}/git-telemetry
         m_git = re.match(r"^/api/projects/([^/]+)/git-telemetry$", path)
         if m_git:
             project_id = m_git.group(1)
@@ -313,7 +393,6 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(scanner.get_git_telemetry(resolved_path))
             return
 
-        # Notas de Melhoria: GET /api/projects/{id}/notes
         m_notes = re.match(r"^/api/projects/([^/]+)/notes$", path)
         if m_notes:
             project_id = m_notes.group(1)
@@ -333,13 +412,15 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(notes_list)
             return
 
-        # Servir Arquivos Estáticos (index.html, static/*)
         super().do_GET()
 
     # --------------------------------------------------------------------------
     # Roteamento POST
     # --------------------------------------------------------------------------
     def do_POST(self):
+        if not self._validate_mutation_security(require_json_content_type=True):
+            return
+
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         body = self.read_json_body()
@@ -347,7 +428,12 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error_json("Corpo da requisição JSON inválido", 400)
             return
 
-        # Ingestão de Pasta do Windows: POST /api/projects/ingest
+        if path == "/api/vault/reindex":
+            force_flag = bool(body.get("force", True))
+            VAULT_OBSERVER.reindex(force=force_flag)
+            self.send_json(VAULT_OBSERVER.get_status_summary(), 200)
+            return
+
         if path == "/api/projects/ingest":
             name = (body.get("name") or "").strip()
             folder_name = (body.get("folder_name") or "").strip()
@@ -373,17 +459,20 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
                 project_id = f"{clean_id}-{counter}"
                 counter += 1
 
-            # Grava documentos ingeridos no volume persistente
-            proj_ingested_dir = INGESTED_BASE_DIR / project_id
+            proj_ingested_dir = (INGESTED_BASE_DIR / project_id).resolve()
             proj_ingested_dir.mkdir(parents=True, exist_ok=True)
 
             for rel_file, content in docs.items():
                 if isinstance(content, str):
-                    target_file = proj_ingested_dir / rel_file.replace("\\", "/").lstrip("/")
+                    clean_rel = rel_file.replace("\\", "/").lstrip("/")
+                    if scanner.has_forbidden_segments(clean_rel):
+                        continue
+                    target_file = (proj_ingested_dir / clean_rel).resolve()
+                    if not target_file.is_relative_to(proj_ingested_dir):
+                        continue
                     target_file.parent.mkdir(parents=True, exist_ok=True)
                     target_file.write_text(content, encoding="utf-8")
 
-            # Cria marcadores de manifesto se identificados no browser
             if manifests.get("has_dockerfile") and not (proj_ingested_dir / "Dockerfile").exists():
                 (proj_ingested_dir / "Dockerfile").touch()
             if manifests.get("has_compose") and not (proj_ingested_dir / "docker-compose.yml").exists():
@@ -395,7 +484,6 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             if manifests.get("has_prisma") and not (proj_ingested_dir / "schema.prisma").exists():
                 (proj_ingested_dir / "schema.prisma").touch()
 
-            # Tenta verificar se a pasta também existe no sistema de arquivos do container/host
             valid_path, res_path, _ = scanner.is_valid_project_path(raw_path)
             resolved_str = str(res_path) if valid_path and res_path else str(proj_ingested_dir)
 
@@ -418,7 +506,6 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(new_proj, 201)
             return
 
-        # Registrar Projeto: POST /api/projects
         if path == "/api/projects":
             name = (body.get("name") or "").strip()
             raw_path = scanner.sanitize_input_path(body.get("path") or "")
@@ -434,7 +521,6 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
                 name = resolved_path.name
 
             projects = load_projects()
-            # Gera ID seguro
             clean_id = re.sub(r"[^a-zA-Z0-9_-]", "-", name.lower()).strip("-")
             project_id = clean_id or "project"
             counter = 1
@@ -455,22 +541,22 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             projects.append(new_proj)
             save_projects(projects)
 
-            # Cria diretório de notas correspondente
             (NOTES_BASE_DIR / project_id).mkdir(parents=True, exist_ok=True)
             self.send_json(new_proj, 201)
             return
 
-        # Configurar Vault de Infraestrutura: POST /api/infra/config
         if path == "/api/infra/config":
             vault_path_raw = body.get("vault_path")
             if not vault_path_raw or not isinstance(vault_path_raw, str):
                 self.send_error_json("Chave 'vault_path' é obrigatória.", 400)
                 return
 
-            clean_path = scanner.sanitize_input_path(vault_path_raw)
-            resolved = scanner.resolve_cross_platform_path(clean_path)
-            if not resolved or not resolved.exists() or not resolved.is_dir():
-                self.send_error_json("O caminho informado não existe ou não é um diretório válido.", 400)
+            valid, resolved, err_msg = scanner.is_valid_project_path(vault_path_raw)
+            if not valid or not resolved:
+                self.send_error_json(
+                    err_msg or "O caminho informado não existe ou viola a política de segurança.",
+                    400,
+                )
                 return
 
             cfg = load_config()
@@ -480,7 +566,6 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"status": "ok", "vault_path": str(resolved)})
             return
 
-        # Criar Nota: POST /api/projects/{id}/notes
         m_add_note = re.match(r"^/api/projects/([^/]+)/notes$", path)
         if m_add_note:
             project_id = m_add_note.group(1)
@@ -518,7 +603,6 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(meta, 201)
             return
 
-        # Atualizar Versão do Projeto: POST /api/projects/{id}/version
         m_version = re.match(r"^/api/projects/([^/]+)/version$", path)
         if m_version:
             project_id = m_version.group(1)
@@ -550,6 +634,9 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
     # Roteamento PUT
     # --------------------------------------------------------------------------
     def do_PUT(self):
+        if not self._validate_mutation_security(require_json_content_type=True):
+            return
+
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         body = self.read_json_body()
@@ -557,7 +644,6 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error_json("Corpo da requisição JSON inválido", 400)
             return
 
-        # Atualizar Nota: PUT /api/projects/{id}/notes/{note_id}
         m_put_note = re.match(r"^/api/projects/([^/]+)/notes/([^/]+)$", path)
         if m_put_note:
             project_id = m_put_note.group(1)
@@ -596,10 +682,12 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
     # Roteamento DELETE
     # --------------------------------------------------------------------------
     def do_DELETE(self):
+        if not self._validate_mutation_security(require_json_content_type=False):
+            return
+
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
-        # Remover Projeto: DELETE /api/projects/{id}
         m_del_proj = re.match(r"^/api/projects/([^/]+)$", path)
         if m_del_proj:
             project_id = m_del_proj.group(1)
@@ -612,7 +700,6 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"status": "deleted", "id": project_id})
             return
 
-        # Remover Nota: DELETE /api/projects/{id}/notes/{note_id}
         m_del_note = re.match(r"^/api/projects/([^/]+)/notes/([^/]+)$", path)
         if m_del_note:
             project_id = m_del_note.group(1)
@@ -635,24 +722,49 @@ class ProjectOSHandler(http.server.SimpleHTTPRequestHandler):
 # Entrypoint de Execução do Servidor
 # ==============================================================================
 
-def run_server(port: int = 4100, host: str = "127.0.0.1") -> None:
+
+def create_server(
+    host: str = "127.0.0.1",
+    port: int = 4100,
+    data_dir: Optional[Path] = None,
+    vault_root: Optional[Path] = None,
+    schema_path: Optional[Path] = None,
+    drive_projects_dir: Optional[Path] = None,
+    warmup: bool = False,
+    background_warmup: bool = True,
+) -> socketserver.ThreadingTCPServer:
+    """Cria e configura uma instância de ThreadingTCPServer com dependências injetáveis."""
+    obs = configure_runtime(
+        data_dir=data_dir,
+        vault_root=vault_root,
+        schema_path=schema_path,
+        drive_projects_dir=drive_projects_dir,
+        warmup=warmup,
+    )
     socketserver.ThreadingTCPServer.allow_reuse_address = True
-    with socketserver.ThreadingTCPServer((host, port), ProjectOSHandler) as httpd:
-        print(f"============================================================")
-        print(f"  Axion Cockpit — Console Operacional e Visual de Projetos")
+    httpd = socketserver.ThreadingTCPServer((host, port), ProjectOSHandler)
+    if not warmup and background_warmup:
+        obs.start_background_warmup()
+    return httpd
+
+
+def run_server(port: int = 4100, host: str = "127.0.0.1") -> None:
+    with create_server(host=host, port=port, warmup=False, background_warmup=True) as httpd:
+        print("============================================================")
+        print("  Nexus Cockpit — Console de Projetos e Observabilidade Vault")
         print(f"  URL Local: http://{host}:{port}")
-        print(f"  Modo: Observador Passivo (Zero-Dependencies)")
-        print(f"============================================================")
+        print("  Modo: Observador Passivo (Zero-Dependencies)")
+        print("============================================================")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
-            print("\nEncerrando Axion Cockpit...")
+            print("\nEncerrando Nexus Cockpit...")
 
 
 if __name__ == "__main__":
     env_port = int(os.environ.get("PORT", "4100")) if os.environ.get("PORT") else 4100
     env_host = os.environ.get("HOST", "127.0.0.1")
-    parser = argparse.ArgumentParser(description="Axion Cockpit Local Server")
+    parser = argparse.ArgumentParser(description="Nexus Cockpit Local Server")
     parser.add_argument("--port", type=int, default=env_port, help=f"Porta TCP (padrão: {env_port})")
     parser.add_argument("--host", type=str, default=env_host, help=f"Host bind (padrão: {env_host})")
     args = parser.parse_args()
